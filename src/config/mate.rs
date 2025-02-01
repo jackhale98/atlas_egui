@@ -10,6 +10,12 @@ pub enum FitType {
     Interference,
 }
 
+impl Default for FitType {
+    fn default() -> Self {
+        FitType::Clearance // Makes sense as a default since it's the most common
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FitValidation {
     pub is_valid: bool,

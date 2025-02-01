@@ -1,412 +1,454 @@
-// src/ui/mates.rs
-use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Clear},
-    Frame,
-};
+use eframe::egui;
 use crate::app::App;
-use crate::state::ui_state::DialogMode;
-use crate::config::mate::FitValidation;
-use crate::config::Feature;
-use crate::state::AppState;
+use crate::config::{Component, Feature, mate::FitType};
 use crate::state::mate_state::{get_component_by_name, MateFilter};
-use crate::state::input_state::MateSelectionState;
-use crate::config::Component;
+use crate::ui::dialog::{DialogState, MateEditData};
 
+pub fn draw_mates_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut DialogState) {
+    let available_size = ui.available_size();
 
-pub fn draw_mates(frame: &mut Frame, app: &App, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ])
-        .split(area);
-
-    draw_mate_list(frame, app, chunks[0]);
-    draw_mate_details(frame, app, chunks[1]);
-
-    if matches!(app.state().ui.dialog_mode, DialogMode::AddMate | DialogMode::EditMate) {
-        draw_mate_dialog(frame, app);
-    }
-}
-
-// src/ui/mates.rs
-fn draw_mate_dialog(frame: &mut Frame, app: &App) {
-    let area = centered_rect(60, 70, frame.size());
-    let state = app.state();
-
-    let title = match state.ui.dialog_mode {
-        DialogMode::AddMate => "Add Mate",
-        DialogMode::EditMate => "Edit Mate",
-        _ => unreachable!(),
-    };
-
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL);
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(1)
-        .constraints([
-            Constraint::Length(3),  // Current Selection Status
-            Constraint::Min(10),    // Selection List
-            Constraint::Length(3),  // Current Selections / Fit Type
-            Constraint::Length(3),  // Instructions
-        ])
-        .split(area);
-
-    frame.render_widget(Clear, area);
-    frame.render_widget(block, area);
-
-    // Show current selection state
-    let status_text = match state.input.mate_selection_state {
-        MateSelectionState::SelectingComponentA => "Select First Component",
-        MateSelectionState::SelectingFeatureA => "Select First Feature",
-        MateSelectionState::SelectingComponentB => "Select Second Component",
-        MateSelectionState::SelectingFeatureB => "Select Second Feature",
-    };
-
-    let status_block = Block::default()
-        .title("Status")
-        .borders(Borders::ALL);
-    frame.render_widget(
-        Paragraph::new(status_text).block(status_block),
-        chunks[0]
-    );
-
-    // Draw the appropriate selection list
-    match state.input.mate_selection_state {
-        MateSelectionState::SelectingComponentA | MateSelectionState::SelectingComponentB => {
-            draw_component_selection_list(frame, app, chunks[1]);
-        },
-        MateSelectionState::SelectingFeatureA => {
-            if let Some(comp_a) = get_component_by_name(&state.project.components, &state.input.mate_inputs.component_a.value()) {
-                draw_feature_selection_list(frame, comp_a, app, chunks[1]);
-            }
-        },
-        MateSelectionState::SelectingFeatureB => {
-            if let Some(comp_b) = get_component_by_name(&state.project.components, &state.input.mate_inputs.component_b.value()) {
-                draw_feature_selection_list(frame, comp_b, app, chunks[1]);
-            }
-        },
-    }
-
-    // Show current selections and fit type
-    let selections = format!(
-        "A: {}.{} ↔ B: {}.{} | Fit Type: {:?} (press 't' to toggle)",
-        state.input.mate_inputs.component_a.value(),
-        state.input.mate_inputs.feature_a.value(),
-        state.input.mate_inputs.component_b.value(),
-        state.input.mate_inputs.feature_b.value(),
-        state.input.mate_inputs.fit_type,
-    );
-
-    let preview_block = Block::default()
-        .title("Current Selections")
-        .borders(Borders::ALL);
-    frame.render_widget(
-        Paragraph::new(selections).block(preview_block),
-        chunks[2]
-    );
-
-    // Instructions
-    let instructions = vec![
-        Line::from(vec![
-            Span::raw("Use "),
-            Span::styled("j/k", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" to navigate, "),
-            Span::styled("Enter", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" to select, "),
-            Span::styled("t", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" to toggle fit type, "),
-            Span::styled("s", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" to save, "),
-            Span::styled("Esc", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" to cancel"),
-        ]),
-    ];
-    frame.render_widget(Paragraph::new(instructions), chunks[3]);
-}
-
-
-fn draw_mate_details(frame: &mut Frame, app: &App, area: Rect) {
-    let state = app.state();
-    let mate_block = Block::default()
-        .title("Mate Details")
-        .borders(Borders::ALL);
-
-    if let Some(selected) = state.ui.mate_list_state.selected() {
-        if let Some(mate) = state.mates.mates.get(selected) {
-            // Find the relevant features
-            let feature_a = find_feature(state, &mate.component_a, &mate.feature_a);
-            let feature_b = find_feature(state, &mate.component_b, &mate.feature_b);
-
-            if let (Some(feat_a), Some(feat_b)) = (feature_a, feature_b) {
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .margin(1)
-                    .constraints([
-                        Constraint::Length(4),  // Component/Feature A info
-                        Constraint::Length(4),  // Component/Feature B info
-                        Constraint::Length(3),  // Fit Type
-                        Constraint::Length(3),  // Nominal Fit
-                        Constraint::Length(3),  // Min Fit
-                        Constraint::Length(3),  // Max Fit
-                        Constraint::Length(3),  // Validation Status
-                    ])
-                    .split(area);
-
-                frame.render_widget(mate_block, area);
-
-                // Feature A info
-                let comp_a = format!(
-                    "{} - {} ({:?})\nNominal: {:.3} [{:+.3}/{:+.3}]",
-                    mate.component_a,
-                    mate.feature_a,
-                    feat_a.feature_type,
-                    feat_a.dimension.value,
-                    feat_a.dimension.plus_tolerance,
-                    feat_a.dimension.minus_tolerance
-                );
-                let comp_a_widget = Paragraph::new(comp_a)
-                    .block(Block::default().title("Component/Feature A").borders(Borders::ALL));
-                frame.render_widget(comp_a_widget, chunks[0]);
-
-                // Feature B info
-                let comp_b = format!(
-                    "{} - {} ({:?})\nNominal: {:.3} [{:+.3}/{:+.3}]",
-                    mate.component_b,
-                    mate.feature_b,
-                    feat_b.feature_type,
-                    feat_b.dimension.value,
-                    feat_b.dimension.plus_tolerance,
-                    feat_b.dimension.minus_tolerance
-                );
-                let comp_b_widget = Paragraph::new(comp_b)
-                    .block(Block::default().title("Component/Feature B").borders(Borders::ALL));
-                frame.render_widget(comp_b_widget, chunks[1]);
-
-                // Fit Type
-                let fit_type = Paragraph::new(format!("{:?}", mate.fit_type))
-                    .block(Block::default().title("Fit Type").borders(Borders::ALL));
-                frame.render_widget(fit_type, chunks[2]);
-
-                // Calculate and display fits
-                let nominal_fit = mate.calculate_nominal_fit(&feat_a, &feat_b);
-                let min_fit = mate.calculate_min_fit(&feat_a, &feat_b);
-                let max_fit = mate.calculate_max_fit(&feat_a, &feat_b);
-
-                let nominal = Paragraph::new(format!("{:.3}", nominal_fit))
-                    .block(Block::default().title("Nominal Fit").borders(Borders::ALL));
-                frame.render_widget(nominal, chunks[3]);
-
-                let min = Paragraph::new(format!("{:.3}", min_fit))
-                    .block(Block::default().title("Minimum Fit").borders(Borders::ALL));
-                frame.render_widget(min, chunks[4]);
-
-                let max = Paragraph::new(format!("{:.3}", max_fit))
-                    .block(Block::default().title("Maximum Fit").borders(Borders::ALL));
-                frame.render_widget(max, chunks[5]);
-                let validation = mate.validate(&feat_a, &feat_b);
-                let validation_style = if !validation.is_valid {
-                    Style::default().fg(Color::Red)
-                } else {
-                    Style::default().fg(Color::Green)
+    egui::Grid::new("mates_grid")
+        .num_columns(2)
+        .spacing([8.0, 4.0])
+        .show(ui, |ui| {
+            // Left panel - Mates List
+            ui.vertical(|ui| {
+                ui.set_min_width(available_size.x * 0.4);
+                ui.set_min_height(available_size.y);
+                
+                // Header with filter info
+                let header_text = match &app.state.mates.filter {
+                    Some(MateFilter::Component(comp)) => {
+                        format!("Mates for component {}", comp)
+                    },
+                    Some(MateFilter::Feature(comp, feat)) => {
+                        format!("Mates for {}.{}", comp, feat)
+                    },
+                    None => "Mates".to_string(),
                 };
 
-                let validation_block = Block::default()
-                    .title("Validation")
-                    .borders(Borders::ALL);
+                ui.heading(&header_text);
+                ui.add_space(4.0);
 
-                let validation_text = if let Some(error) = validation.error_message {
-                    format!("Invalid: {}", error)
+                // Add Mate button
+                if ui.button("➕ Add Mate").clicked() {
+                    *dialog_state = DialogState::MateEdit(MateEditData::default());
+                }
+
+                // Clear filter button if filtered
+                if app.state.mates.filter.is_some() {
+                    if ui.button("🔄 Clear Filter").clicked() {
+                        app.state.mates.filter = None;
+                        app.state.ui.mate_list_state.select(None);
+                    }
+                }
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(8.0);
+
+                // Mates list
+                egui::ScrollArea::vertical()
+                    .id_source("mates_list_scroll")
+                    .show(ui, |ui| {
+                        let mut delete_index = None;
+                        let filtered_mates = app.state.mates.filtered_mates();
+
+                        for (index, mate) in filtered_mates.iter().enumerate() {
+                            let feature_a = find_feature(app, &mate.component_a, &mate.feature_a);
+                            let feature_b = find_feature(app, &mate.component_b, &mate.feature_b);
+                            
+                            let validation = if let (Some(feat_a), Some(feat_b)) = (feature_a, feature_b) {
+                                mate.validate(feat_a, feat_b)
+                            } else {
+                                crate::config::mate::FitValidation {
+                                    is_valid: false,
+                                    nominal_fit: 0.0,
+                                    min_fit: 0.0,
+                                    max_fit: 0.0,
+                                    error_message: Some("Missing features".to_string()),
+                                }
+                            };
+
+                            let is_selected = app.state.ui.mate_list_state.selected() == Some(index);
+                            
+                            ui.group(|ui| {
+                                ui.set_width(ui.available_width());
+                                let style = if !validation.is_valid {
+                                    ui.style_mut().visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(64, 0, 0);
+                                };
+
+                                let response = ui.selectable_label(
+                                    is_selected,
+                                    format!(
+                                        "{}.{} ↔ {}.{}\nFit Type: {:?}",
+                                        mate.component_a, mate.feature_a,
+                                        mate.component_b, mate.feature_b,
+                                        mate.fit_type
+                                    )
+                                );
+
+                                if response.clicked() {
+                                    app.state.ui.mate_list_state.select(Some(index));
+                                }
+
+                                response.context_menu(|ui| {
+                                    if ui.button("✏ Edit").clicked() {
+                                        *dialog_state = DialogState::MateEdit(MateEditData {
+                                            component_a: mate.component_a.clone(),
+                                            feature_a: mate.feature_a.clone(),
+                                            component_b: mate.component_b.clone(),
+                                            feature_b: mate.feature_b.clone(),
+                                            fit_type: mate.fit_type.clone(),
+                                            is_editing: true,
+                                            mate_index: Some(index),
+                                        });
+                                        ui.close_menu();
+                                    }
+                                    
+                                    ui.separator();
+                                    
+                                    if ui.button(egui::RichText::new("🗑 Delete")
+                                        .color(egui::Color32::RED)).clicked() 
+                                    {
+                                        delete_index = Some(index);
+                                        ui.close_menu();
+                                    }
+                                });
+
+                                if !validation.is_valid {
+                                    if let Some(error) = validation.error_message {
+                                        ui.colored_label(egui::Color32::RED, error);
+                                    }
+                                }
+                            });
+                            ui.add_space(4.0);
+                        }
+
+                        if let Some(index) = delete_index {
+                            app.state.mates.mates.remove(index);
+                            
+                            // Update selection after deletion
+                            if app.state.mates.mates.is_empty() {
+                                app.state.ui.mate_list_state.select(None);
+                            } else if index >= app.state.mates.mates.len() {
+                                app.state.ui.mate_list_state
+                                    .select(Some(app.state.mates.mates.len() - 1));
+                            }
+
+                            // Save changes
+                            let mates_file = crate::file::mates::MatesFile {
+                                version: "1.0.0".to_string(),
+                                mates: app.state.mates.mates.clone(),
+                            };
+                            if let Err(e) = app.state.file_manager.save_mates(&mates_file) {
+                                println!("Error saving mates: {}", e);
+                            }
+                        }
+                    });
+            });
+
+            // Right panel - Mate Details
+            ui.vertical(|ui| {
+                ui.set_min_width(available_size.x * 0.6);
+                ui.set_min_height(available_size.y);
+
+                if let Some(selected) = app.state.ui.mate_list_state.selected() {
+                    if let Some(mate) = app.state.mates.mates.get(selected) {
+                        let feature_a = find_feature(app, &mate.component_a, &mate.feature_a);
+                        let feature_b = find_feature(app, &mate.component_b, &mate.feature_b);
+
+                        if let (Some(feat_a), Some(feat_b)) = (feature_a, feature_b) {
+                            ui.heading("Mate Details");
+                            ui.add_space(8.0);
+
+                            // Feature A details
+                            ui.group(|ui| {
+                                ui.heading(&format!("Component A: {}", mate.component_a));
+                                ui.label(&format!("Feature: {} ({:?})", 
+                                    feat_a.name, feat_a.feature_type));
+                                ui.horizontal(|ui| {
+                                    ui.label("Nominal:");
+                                    ui.strong(&format!("{:.3}", feat_a.dimension.value));
+                                    ui.label("Tolerances:");
+                                    ui.strong(&format!("[{:+.3}/{:+.3}]",
+                                        feat_a.dimension.plus_tolerance,
+                                        feat_a.dimension.minus_tolerance));
+                                });
+                            });
+
+                            ui.add_space(8.0);
+
+                            // Feature B details
+                            ui.group(|ui| {
+                                ui.heading(&format!("Component B: {}", mate.component_b));
+                                ui.label(&format!("Feature: {} ({:?})", 
+                                    feat_b.name, feat_b.feature_type));
+                                ui.horizontal(|ui| {
+                                    ui.label("Nominal:");
+                                    ui.strong(&format!("{:.3}", feat_b.dimension.value));
+                                    ui.label("Tolerances:");
+                                    ui.strong(&format!("[{:+.3}/{:+.3}]",
+                                        feat_b.dimension.plus_tolerance,
+                                        feat_b.dimension.minus_tolerance));
+                                });
+                            });
+
+                            ui.add_space(16.0);
+
+                            // Fit Analysis
+                            ui.group(|ui| {
+                                ui.heading(&format!("Fit Analysis ({:?})", mate.fit_type));
+                                
+                                let nominal_fit = mate.calculate_nominal_fit(feat_a, feat_b);
+                                let min_fit = mate.calculate_min_fit(feat_a, feat_b);
+                                let max_fit = mate.calculate_max_fit(feat_a, feat_b);
+                                let validation = mate.validate(feat_a, feat_b);
+
+                                ui.horizontal(|ui| {
+                                    ui.label("Nominal Fit:");
+                                    ui.strong(&format!("{:.3}", nominal_fit));
+                                });
+
+                                ui.horizontal(|ui| {
+                                    ui.label("Minimum Fit:");
+                                    ui.strong(&format!("{:.3}", min_fit));
+                                });
+
+                                ui.horizontal(|ui| {
+                                    ui.label("Maximum Fit:");
+                                    ui.strong(&format!("{:.3}", max_fit));
+                                });
+
+                                ui.add_space(8.0);
+                                
+                                // Validation status
+                                if validation.is_valid {
+                                    ui.colored_label(egui::Color32::GREEN, "✓ Valid fit");
+                                } else if let Some(error) = validation.error_message {
+                                    ui.colored_label(egui::Color32::RED, format!("⚠ {}", error));
+                                }
+                            });
+                        } else {
+                            ui.colored_label(
+                                egui::Color32::RED,
+                                "⚠ One or more features not found"
+                            );
+                        }
+                    }
                 } else {
-                    "Valid fit".to_string()
-                };
+                    ui.centered_and_justified(|ui| {
+                        ui.label("Select a mate to view details");
+                    });
+                }
+            });
+        });
+}
 
-                let validation_widget = Paragraph::new(validation_text)
-                    .style(validation_style)
-                    .block(validation_block);
-                frame.render_widget(validation_widget, chunks[6]); // Add a new chunk for validation
+pub fn show_mate_edit_dialog(
+    ctx: &egui::Context,
+    dialog_state: &mut DialogState,
+    app: &mut App,
+) {
+    let mut should_close = false;
+    let mut save_changes = false;
+
+    if let DialogState::MateEdit(data) = dialog_state {
+        let title = if data.is_editing { "Edit Mate" } else { "New Mate" };
+
+        egui::Window::new(title)
+            .collapsible(false)
+            .resizable(false)
+            .fixed_size([400.0, 400.0])
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    // Component A selection
+                    ui.group(|ui| {
+                        ui.heading("Component A");
+                        egui::ComboBox::from_label("Select Component")
+                            .selected_text(&data.component_a)
+                            .show_ui(ui, |ui| {
+                                for component in &app.state.project.components {
+                                    ui.selectable_value(
+                                        &mut data.component_a,
+                                        component.name.clone(),
+                                        &component.name
+                                    );
+                                }
+                            });
+
+                        if let Some(component) = get_component_by_name(
+                            &app.state.project.components,
+                            &data.component_a
+                        ) {
+                            egui::ComboBox::from_label("Select Feature")
+                                .selected_text(&data.feature_a)
+                                .show_ui(ui, |ui| {
+                                    for feature in &component.features {
+                                        ui.selectable_value(
+                                            &mut data.feature_a,
+                                            feature.name.clone(),
+                                            &feature.name
+                                        );
+                                    }
+                                });
+                        }
+                    });
+
+                    ui.add_space(8.0);
+
+                    // Component B selection
+                    ui.group(|ui| {
+                        ui.heading("Component B");
+                        egui::ComboBox::from_label("Select Component")
+                            .selected_text(&data.component_b)
+                            .show_ui(ui, |ui| {
+                                for component in &app.state.project.components {
+                                    ui.selectable_value(
+                                        &mut data.component_b,
+                                        component.name.clone(),
+                                        &component.name
+                                    );
+                                }
+                            });
+
+                        if let Some(component) = get_component_by_name(
+                            &app.state.project.components,
+                            &data.component_b
+                        ) {
+                            egui::ComboBox::from_label("Select Feature")
+                                .selected_text(&data.feature_b)
+                                .show_ui(ui, |ui| {
+                                    for feature in &component.features {
+                                        ui.selectable_value(
+                                            &mut data.feature_b,
+                                            feature.name.clone(),
+                                            &feature.name
+                                        );
+                                    }
+                                });
+                        }
+                    });
+
+                    ui.add_space(8.0);
+
+                    // Fit Type selection
+                    ui.group(|ui| {
+                        ui.heading("Fit Type");
+                        ui.horizontal(|ui| {
+                            ui.radio_value(&mut data.fit_type, FitType::Clearance, "Clearance");
+                            ui.radio_value(&mut data.fit_type, FitType::Transition, "Transition");
+                            ui.radio_value(&mut data.fit_type, FitType::Interference, "Interference");
+                        });
+                    });
+
+                    ui.add_space(16.0);
+
+                    // Preview/Validation
+                    if let (Some(feature_a), Some(feature_b)) = (
+                        find_feature(app, &data.component_a, &data.feature_a),
+                        find_feature(app, &data.component_b, &data.feature_b)
+                    ) {
+                        let validation = crate::config::mate::Mate::new(
+                            uuid::Uuid::new_v4().to_string(),
+                            data.component_a.clone(),
+                            data.feature_a.clone(),
+                            data.component_b.clone(),
+                            data.feature_b.clone(),
+                            data.fit_type.clone()
+                        ).validate(feature_a, feature_b);
+
+                        let validation_color = if validation.is_valid {
+                            egui::Color32::GREEN
+                        } else {
+                            egui::Color32::RED
+                        };
+
+                        ui.group(|ui| {
+                            ui.colored_label(
+                                validation_color,
+                                if validation.is_valid {
+                                    format!(
+                                        "✓ Valid fit\nNominal: {:.3}\nMin: {:.3}\nMax: {:.3}",
+                                        validation.nominal_fit,
+                                        validation.min_fit,
+                                        validation.max_fit
+                                    )
+                                } else {
+                                    format!("⚠ {}", validation.error_message.unwrap_or_default())
+                                }
+                            );
+                        });
+                    }
+
+                    ui.add_space(16.0);
+
+                    // Action buttons
+                    ui.horizontal(|ui| {
+                        let can_save = !data.component_a.is_empty() 
+                            && !data.feature_a.is_empty()
+                            && !data.component_b.is_empty() 
+                            && !data.feature_b.is_empty();
+
+                        if ui.add_enabled(can_save, egui::Button::new("Save")).clicked() {
+                            save_changes = true;
+                            should_close = true;
+                        }
+
+                        if ui.button("Cancel").clicked() {
+                            should_close = true;
+                        }
+                    });
+                });
+            });
+
+        // Apply changes after UI
+        if save_changes {
+            let new_mate = crate::config::mate::Mate::new(
+                uuid::Uuid::new_v4().to_string(),
+                data.component_a.clone(),
+                data.feature_a.clone(),
+                data.component_b.clone(),
+                data.feature_b.clone(),
+                data.fit_type.clone()
+            );
+
+            if data.is_editing {
+                if let Some(idx) = data.mate_index {
+                    if let Some(mate) = app.state.mates.mates.get_mut(idx) {
+                        *mate = new_mate;
+                    }
+                }
             } else {
-                // One or both features not found
-                frame.render_widget(
-                    Paragraph::new("One or both features not found in components")
-                        .block(mate_block),
-                    area,
-                );
+                app.state.mates.mates.push(new_mate);
+            }
+
+            // Update dependency graph
+            app.state.mates.update_dependency_graph(&app.state.project.components);
+
+            // Save mates file
+            let mates_file = crate::file::mates::MatesFile {
+                version: "1.0.0".to_string(),
+                mates: app.state.mates.mates.clone(),
+            };
+            if let Err(e) = app.state.file_manager.save_mates(&mates_file) {
+                println!("Error saving mates: {}", e);
             }
         }
-    } else {
-        frame.render_widget(
-            Paragraph::new("Select a mate to view details")
-                .block(mate_block),
-            area,
-        );
+    }
+
+    if should_close {
+        *dialog_state = DialogState::None;
     }
 }
 
-fn draw_component_selection_list(frame: &mut Frame, app: &App, area: Rect) {
-    let state = app.state();
-    let items: Vec<ListItem> = state.project.components
-        .iter()
-        .map(|component| {
-            ListItem::new(format!("{} ({} features)", component.name, component.features.len()))
-        })
-        .collect();
-
-    let list = List::new(items)
-        .block(Block::default().title("Components").borders(Borders::ALL))
-        .highlight_style(Style::default().bg(Color::DarkGray))
-        .highlight_symbol("► ");
-
-    frame.render_stateful_widget(
-        list,
-        area,
-        &mut state.ui.component_list_state.clone(),
-    );
-}
-
-fn draw_feature_selection_list(frame: &mut Frame, component: &Component, app: &App, area: Rect) {
-    let state = app.state();  // Get state reference from app
-    let items: Vec<ListItem> = component.features
-        .iter()
-        .map(|feature| {
-            ListItem::new(format!(
-                "{} ({:?}) - {:.3} [{:+.3}/{:+.3}]",
-                feature.name,
-                feature.feature_type,
-                feature.dimension.value,
-                feature.dimension.plus_tolerance,
-                feature.dimension.minus_tolerance
-            ))
-        })
-        .collect();
-
-    let list = List::new(items)
-        .block(Block::default().title("Features").borders(Borders::ALL))
-        .highlight_style(Style::default().bg(Color::DarkGray))
-        .highlight_symbol("► ");
-
-    frame.render_stateful_widget(
-        list,
-        area,
-        &mut app.state().ui.feature_list_state.clone(),  // Use app.state()
-    );
-}
-
-
-// Helper function to find a feature in the project state
 fn find_feature<'a>(
-    state: &'a AppState,
+    app: &'a App,
     component_name: &str,
     feature_name: &str
 ) -> Option<&'a Feature> {
-    state.project.components
-        .iter()
+    app.state.project.components.iter()
         .find(|c| c.name == component_name)?
-        .features
-        .iter()
+        .features.iter()
         .find(|f| f.name == feature_name)
-}
-
-fn draw_mate_list(frame: &mut Frame, app: &App, area: Rect) {
-    let state = app.state();
-    let mates = state.mates.filtered_mates();
-
-    let title = match &state.mates.filter {
-        Some(MateFilter::Component(comp)) => {
-            format!("Mates for component {} (m: add, e: edit, d: delete, c: clear filter)", comp)
-        },
-        Some(MateFilter::Feature(comp, feat)) => {
-            format!("Mates for {}.{} (m: add, e: edit, d: delete, c: clear filter)", comp, feat)
-        },
-        None => "Mates (m: add, e: edit, d: delete)".to_string(),
-    };
-
-    let items: Vec<ListItem> = mates
-        .iter()
-        .map(|mate| {
-            let feature_a = find_feature(state, &mate.component_a, &mate.feature_a);
-            let feature_b = find_feature(state, &mate.component_b, &mate.feature_b);
-
-            let validation = if let (Some(feat_a), Some(feat_b)) = (feature_a, feature_b) {
-                mate.validate(feat_a, feat_b)
-            } else {
-                FitValidation {
-                    is_valid: false,
-                    nominal_fit: 0.0,
-                    min_fit: 0.0,
-                    max_fit: 0.0,
-                    error_message: Some("Missing features".to_string())
-                }
-            };
-
-            let style = if !validation.is_valid {
-                Style::default().fg(Color::Red)
-            } else {
-                Style::default()
-            };
-
-            let text = format!(
-                "{} ({}) ↔ {} ({}) - {:?}",
-                mate.component_a, mate.feature_a,
-                mate.component_b, mate.feature_b,
-                mate.fit_type
-            );
-
-            if let Some(error) = validation.error_message {
-                ListItem::new(vec![
-                    Line::from(text),
-                    Line::from(format!("  Error: {}", error))
-                ]).style(style)
-            } else {
-                ListItem::new(text).style(style)
-            }
-        })
-        .collect();
-
-    let mates_block = Block::default()
-        .title(title)
-        .borders(Borders::ALL);
-
-    let mates_list = List::new(items)
-        .block(mates_block)
-        .highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD)
-        )
-        .highlight_symbol("► ");
-
-    frame.render_stateful_widget(
-        mates_list,
-        area,
-        &mut state.ui.mate_list_state.clone(),
-    );
-}
-
-
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
 }

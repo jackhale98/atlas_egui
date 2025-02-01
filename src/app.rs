@@ -205,7 +205,7 @@ impl eframe::App for AtlasApp {
                     crate::ui::components::draw_components_view(ui, &mut self.app, &mut self.dialog_state);
                 },
                 ScreenMode::Mates => {
-                    ui.label("Mates View - Coming Soon");
+                    crate::ui::mates::draw_mates_view(ui, &mut self.app, &mut self.dialog_state);
                 },
                 ScreenMode::DependencyMatrix => {
                     ui.label("Dependencies View - Coming Soon");

@@ -1,7 +1,7 @@
 // src/ui/dialog.rs
 use crate::config::FeatureType;
 use crate::analysis::DistributionType;
-
+use crate::config::mate::FitType;
 
 #[derive(Default)]
 pub struct ComponentEditData {
@@ -13,13 +13,6 @@ pub struct ComponentEditData {
 }
 
 #[derive(Default)]
-pub enum DialogState {
-    #[default]
-    None,
-    ComponentEdit(ComponentEditData),
-    FeatureEdit(FeatureEditData),
-}
-#[derive(Default)]
 pub struct FeatureEditData {
     pub name: String,
     pub feature_type: FeatureType,
@@ -30,4 +23,24 @@ pub struct FeatureEditData {
     pub is_editing: bool,
     pub feature_index: Option<usize>,
     pub component_index: Option<usize>,
+}
+
+#[derive(Default)]
+pub struct MateEditData {
+    pub component_a: String,
+    pub feature_a: String,
+    pub component_b: String,
+    pub feature_b: String,
+    pub fit_type: FitType,
+    pub is_editing: bool,
+    pub mate_index: Option<usize>,
+}
+
+#[derive(Default)]
+pub enum DialogState {
+    #[default]
+    None,
+    ComponentEdit(ComponentEditData),
+    FeatureEdit(FeatureEditData),
+    MateEdit(MateEditData),
 }
