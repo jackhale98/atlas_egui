@@ -3,6 +3,13 @@
     description: Some("This is a test"),
     version: "1.0.0",
     units: Metric,
-    component_references: [],
+    component_references: [
+        (
+            path: "components/test_comp_1_rev_a.ron",
+        ),
+        (
+            path: "components/test_comp_2_rev_b.ron",
+        ),
+    ],
     analyses: [],
 )
