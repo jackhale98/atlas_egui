@@ -2,6 +2,7 @@
 #[derive(Default)]
 pub struct ComponentEditData {
     pub name: String,
+    pub revision: String,
     pub description: String,
     pub is_editing: bool,
     pub component_index: Option<usize>,
