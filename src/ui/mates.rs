@@ -369,20 +369,23 @@ pub fn show_mate_edit_dialog(
                         };
 
                         ui.group(|ui| {
-                            ui.colored_label(
-                                validation_color,
-                                if validation.is_valid {
-                                    format!(
-                                        "✓ Valid fit\nNominal: {:.3}\nMin: {:.3}\nMax: {:.3}",
-                                        validation.nominal_fit,
-                                        validation.min_fit,
-                                        validation.max_fit
-                                    )
-                                } else {
-                                    format!("⚠ {}", validation.error_message.unwrap_or_default())
-                                }
-                            );
+                            if !validation.is_valid {
+                                // Use a warning color and show the error message
+                                ui.colored_label(
+                                    egui::Color32::YELLOW, 
+                                    format!("⚠ Warning: {}", validation.error_message.unwrap_or_default())
+                                );
+                            }
+                    
+                            // Always show fit details
+                            ui.label(format!(
+                                "Nominal Fit: {:.3}\nMin Fit: {:.3}\nMax Fit: {:.3}",
+                                validation.nominal_fit,
+                                validation.min_fit,
+                                validation.max_fit
+                            ));
                         });
+                        let can_save = true;
                     }
 
                     ui.add_space(16.0);
