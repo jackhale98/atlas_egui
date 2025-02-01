@@ -1,0 +1,8 @@
+(
+    name: "Testing",
+    description: Some("This is a test"),
+    version: "1.0.0",
+    units: Metric,
+    component_references: [],
+    analyses: [],
+)
