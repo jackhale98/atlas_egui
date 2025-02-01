@@ -157,22 +157,21 @@ pub fn show_component_edit_dialog(
     }
 }
 
-// In src/ui/components.rs
-// In src/ui/components.rs
 pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut DialogState) {
+    let available_size = ui.available_size();
+
     egui::Grid::new("components_grid")
         .num_columns(2)
         .spacing([8.0, 4.0])
         .show(ui, |ui| {
             // Left panel - Component List
-            let available_height = ui.available_height();
             ui.vertical(|ui| {
-                ui.set_min_width(250.0);
-                ui.set_min_height(available_height);
+                ui.set_min_width(available_size.x * 0.3);
+                ui.set_min_height(available_size.y);
+                
                 ui.heading("Components");
                 ui.add_space(4.0);
 
-                // Add Component button at top
                 if ui.button("➕ Add Component").clicked() {
                     *dialog_state = DialogState::ComponentEdit(ComponentEditData {
                         name: String::new(),
@@ -187,10 +186,8 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                 ui.separator();
                 ui.add_space(8.0);
 
-                // Component list with scrolling
                 egui::ScrollArea::vertical()
-                    .id_source("components_list_scroll")  // Add unique ID
-                    .max_height(ui.available_height())
+                    .id_source("components_list_scroll")
                     .show(ui, |ui| {
                         let mut delete_index = None;
                         
@@ -253,18 +250,13 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                             });
                         }
 
-                        // Handle deletion after the iteration
                         if let Some(index) = delete_index {
                             app.state.project.components.remove(index);
-                            
-                            // Update selection
                             if app.state.project.components.is_empty() {
                                 app.state.ui.component_list_state.select(None);
                             } else if index >= app.state.project.components.len() {
                                 app.state.ui.component_list_state.select(Some(app.state.project.components.len() - 1));
                             }
-
-                            // Save changes
                             if let Err(e) = app.state.file_manager.save_project(
                                 &app.state.project.project_file,
                                 &app.state.project.components,
@@ -278,14 +270,12 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
 
             // Right panel - Component Details & Features
             ui.vertical(|ui| {
-                ui.set_min_height(ui.available_height());  // Set minimum height
-                
+                ui.set_min_width(available_size.x * 0.7);
+                ui.set_min_height(available_size.y);
+
                 if let Some(selected_idx) = app.state.ui.component_list_state.selected() {
-                    // Clone the data we need for display
                     let component_name = app.state.project.components[selected_idx].name.clone();
                     let component_desc = app.state.project.components[selected_idx].description.clone();
-                    
-                    // Create a Vec of the feature data we need to display
                     let features_display: Vec<_> = app.state.project.components[selected_idx]
                         .features
                         .iter()
@@ -299,14 +289,12 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                         ))
                         .collect();
 
-                    // Component details section
                     ui.heading(&component_name);
                     if let Some(desc) = &component_desc {
                         ui.label(desc);
                     }
                     ui.add_space(16.0);
 
-                    // Features section
                     ui.heading("Features");
                     ui.add_space(4.0);
                     
@@ -328,9 +316,8 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                     ui.separator();
                     ui.add_space(8.0);
 
-                    // Features list with scrolling
                     egui::ScrollArea::vertical()
-                        .id_source("features_list_scroll") 
+                        .id_source("features_list_scroll")
                         .show(ui, |ui| {
                             ui.set_min_width(ui.available_width());
                             let mut delete_index = None;
@@ -343,22 +330,19 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                 ui.group(|ui| {
                                     ui.set_width(ui.available_width());
                                     
-                                    // Main feature row with name and type
                                     ui.horizontal(|ui| {
-                                        // Set the available width for the label
                                         ui.set_min_width(ui.available_width());
                                         let response = ui.selectable_label(
                                             is_selected,
                                             format!("{} ({:?})", name, ftype)
                                         );
-                                    
+
                                         if response.clicked() {
                                             app.state.ui.feature_list_state.select(Some(index));
                                         }
-                                    
+
                                         response.context_menu(|ui| {
                                             if ui.button("✏ Edit").clicked() {
-                                                // Get the actual feature for editing
                                                 if let Some(feature) = &app.state.project.components[selected_idx].features.get(index) {
                                                     *dialog_state = DialogState::FeatureEdit(FeatureEditData {
                                                         name: feature.name.clone(),
@@ -382,10 +366,8 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                         });
                                     });
 
-                                    // Feature details when selected
                                     if is_selected {
                                         ui.add_space(4.0);
-                                        // Value and tolerances on one line
                                         ui.horizontal(|ui| {
                                             ui.label("Value:");
                                             ui.strong(format!("{:.3}", value));
@@ -394,7 +376,6 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                             ui.strong(format!("[{:+.3}/{:+.3}]", plus_tol, minus_tol));
                                         });
 
-                                        // Distribution on separate line
                                         if let Some(dist) = distribution {
                                             ui.horizontal(|ui| {
                                                 ui.label("Distribution:");
@@ -406,12 +387,10 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                 ui.add_space(4.0);
                             }
 
-                            // Handle deletion after the iteration
                             if let Some(index) = delete_index {
                                 if let Some(component) = app.state.project.components.get_mut(selected_idx) {
                                     component.features.remove(index);
                                     
-                                    // Update selection
                                     if let Some(feat_idx) = app.state.ui.feature_list_state.selected() {
                                         if feat_idx >= component.features.len() {
                                             app.state.ui.feature_list_state
@@ -419,7 +398,6 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                         }
                                     }
 
-                                    // Save changes
                                     if let Err(e) = app.state.file_manager.save_project(
                                         &app.state.project.project_file,
                                         &app.state.project.components,
