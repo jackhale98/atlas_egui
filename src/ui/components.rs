@@ -1,12 +1,11 @@
 // src/ui/components.rs
 use eframe::egui;
 use crate::app::App;
-use crate::config::Feature;
-use crate::ui::dialog::{ComponentEditData, DialogState};
+use crate::config::{Feature, FeatureType};
+use crate::ui::dialog::{ComponentEditData, DialogState, FeatureEditData};
+use crate::config::ComponentReference;
+use crate::analysis::DistributionType;
 
-
-
-// In src/ui/components.rs
 pub fn show_component_edit_dialog(
     ctx: &egui::Context,
     dialog_state: &mut DialogState,
@@ -101,26 +100,53 @@ pub fn show_component_edit_dialog(
             
             if data.is_editing {
                 if let Some(idx) = data.component_index {
+                    // Get the old component name before updating
+                    let old_name = app.state.project.components[idx].name.clone();
+                    let old_filename = format!("components/{}.ron", old_name.to_lowercase().replace(" ", "_"));
+        
+                    // Update component
                     if let Some(component) = app.state.project.components.get_mut(idx) {
-                        component.name = full_name;
+                        component.name = full_name.clone();
                         component.description = Some(data.description.clone());
+                    }
+        
+                    // Update reference in project file
+                    let new_filename = format!("components/{}.ron", full_name.to_lowercase().replace(" ", "_"));
+                    if let Some(reference) = app.state.project.project_file.component_references
+                        .iter_mut()
+                        .find(|r| r.path == old_filename)
+                    {
+                        reference.path = new_filename;
                     }
                 }
             } else {
+                // Create the new component
                 app.state.project.components.push(crate::config::Component {
-                    name: full_name,
+                    name: full_name.clone(),
                     description: Some(data.description.clone()),
                     features: Vec::new(),
                 });
+        
+                // Update the component references in the project file
+                let filename = format!("{}.ron", full_name.to_lowercase().replace(" ", "_"));
+                let rel_path = format!("components/{}", filename).replace('\\', "/");
+                
+                // Add the new component reference if it doesn't exist
+                if !app.state.project.project_file.component_references
+                    .iter()
+                    .any(|r| r.path == rel_path)
+                {
+                    app.state.project.project_file.component_references
+                        .push(ComponentReference { path: rel_path });
+                }
             }
-
-            // Optionally trigger a save of the project file here
+        
+            // Save all changes
             if let Err(e) = app.state.file_manager.save_project(
                 &app.state.project.project_file,
                 &app.state.project.components,
                 &app.state.analysis.analyses,
             ) {
-                // TODO: Handle save error - maybe add an error message to the UI
                 println!("Error saving project: {}", e);
             }
         }
@@ -198,9 +224,20 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                     ui.close_menu();
                                 }
 
-                                if ui.button("🔧 Add Feature").clicked() {
-                                    // TODO: Will implement feature dialog
-                                    ui.close_menu();
+                                if let Some(selected_idx) = app.state.ui.component_list_state.selected() {
+                                    if ui.button("➕ Add Feature").clicked() {
+                                        *dialog_state = DialogState::FeatureEdit(FeatureEditData {
+                                            name: String::new(),
+                                            feature_type: FeatureType::default(),
+                                            value: String::new(),
+                                            plus_tolerance: String::new(),
+                                            minus_tolerance: String::new(),
+                                            distribution: DistributionType::default(),
+                                            is_editing: false,
+                                            feature_index: None,
+                                            component_index: Some(selected_idx),
+                                        });
+                                    }
                                 }
 
                                 ui.separator();
@@ -241,66 +278,139 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
             // Right panel - Component Details & Features
             ui.vertical(|ui| {
                 if let Some(selected_idx) = app.state.ui.component_list_state.selected() {
-                    if let Some(component) = app.state.project.components.get(selected_idx) {
-                        // Component details section
-                        ui.heading(&component.name);
-                        if let Some(desc) = &component.description {
-                            ui.label(desc);
-                        }
-                        ui.add_space(16.0);
-
-                        // Features section
-                        ui.heading("Features");
-                        ui.add_space(4.0);
-                        
-                        if ui.button("➕ Add Feature").clicked() {
-                            // TODO: Show feature creation dialog
-                        }
-
-                        ui.add_space(8.0);
-                        ui.separator();
-                        ui.add_space(8.0);
-
-                        // Features list with scrolling
-                        egui::ScrollArea::vertical()
-                            .id_source("features_list_scroll") 
-                            .max_height(ui.available_height())
-                            .show(ui, |ui| {
-                                for (index, feature) in component.features.iter().enumerate() {
-                                    let is_selected = app.state.ui.feature_list_state.selected() == Some(index);
-                                    ui.group(|ui| {
-                                        let response = ui.selectable_label(
-                                            is_selected,
-                                            format!("{} ({:?})", feature.name, feature.feature_type)
-                                        );
-
-                                        if response.clicked() {
-                                            app.state.ui.feature_list_state.select(Some(index));
-                                        }
-
-                                        if is_selected {
-                                            ui.add_space(4.0);
-                                            ui.horizontal(|ui| {
-                                                ui.label("Value:");
-                                                ui.strong(format!("{:.3}", feature.dimension.value));
-                                                ui.label("Tolerances:");
-                                                ui.strong(format!("[{:+.3}/{:+.3}]", 
-                                                    feature.dimension.plus_tolerance,
-                                                    feature.dimension.minus_tolerance));
-                                            });
-
-                                            if let Some(dist) = &feature.distribution {
-                                                ui.label(format!("Distribution: {:?}", dist));
-                                            }
-                                        }
-                                    });
-                                }
-                            });
-                    } else {
-                        ui.centered_and_justified(|ui| {
-                            ui.label("Select a component to view details");
+                    // Clone the data we need for display
+                    let component_name = app.state.project.components[selected_idx].name.clone();
+                    let component_desc = app.state.project.components[selected_idx].description.clone();
+                    
+                    // Create a Vec of the feature data we need to display
+                    let features_display: Vec<_> = app.state.project.components[selected_idx]
+                        .features
+                        .iter()
+                        .map(|f| (
+                            f.name.clone(),
+                            f.feature_type,
+                            f.dimension.value,
+                            f.dimension.plus_tolerance,
+                            f.dimension.minus_tolerance,
+                            f.distribution
+                        ))
+                        .collect();
+            
+                    // Component details section
+                    ui.heading(&component_name);
+                    if let Some(desc) = &component_desc {
+                        ui.label(desc);
+                    }
+                    ui.add_space(16.0);
+            
+                    // Features section
+                    ui.heading("Features");
+                    ui.add_space(4.0);
+                    
+                    if ui.button("➕ Add Feature").clicked() {
+                        *dialog_state = DialogState::FeatureEdit(FeatureEditData {
+                            name: String::new(),
+                            feature_type: FeatureType::default(),
+                            value: String::new(),
+                            plus_tolerance: String::new(),
+                            minus_tolerance: String::new(),
+                            distribution: DistributionType::default(),
+                            is_editing: false,
+                            feature_index: None,
+                            component_index: Some(selected_idx),
                         });
                     }
+            
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+            
+                    // Features list with scrolling
+                    egui::ScrollArea::vertical()
+                        .id_source("features_list_scroll") 
+                        .max_height(ui.available_height())
+                        .show(ui, |ui| {
+                            let mut delete_index = None;
+                            
+                            for (index, (name, ftype, value, plus_tol, minus_tol, distribution)) 
+                                in features_display.iter().enumerate() 
+                            {
+                                let is_selected = app.state.ui.feature_list_state.selected() == Some(index);
+                                ui.group(|ui| {
+                                    let response = ui.selectable_label(
+                                        is_selected,
+                                        format!("{} ({:?})", name, ftype)
+                                    );
+            
+                                    if response.clicked() {
+                                        app.state.ui.feature_list_state.select(Some(index));
+                                    }
+            
+                                    if is_selected {
+                                        ui.add_space(4.0);
+                                        ui.horizontal(|ui| {
+                                            ui.label("Value:");
+                                            ui.strong(format!("{:.3}", value));
+                                            ui.label("Tolerances:");
+                                            ui.strong(format!("[{:+.3}/{:+.3}]", plus_tol, minus_tol));
+                                        });
+            
+                                        if let Some(dist) = distribution {
+                                            ui.label(format!("Distribution: {:?}", dist));
+                                        }
+                                    }
+            
+                                    response.context_menu(|ui| {
+                                        if ui.button("✏ Edit").clicked() {
+                                            // Get the actual feature for editing
+                                            if let Some(feature) = &app.state.project.components[selected_idx].features.get(index) {
+                                                *dialog_state = DialogState::FeatureEdit(FeatureEditData {
+                                                    name: feature.name.clone(),
+                                                    feature_type: feature.feature_type,
+                                                    value: feature.dimension.value.to_string(),
+                                                    plus_tolerance: feature.dimension.plus_tolerance.to_string(),
+                                                    minus_tolerance: feature.dimension.minus_tolerance.to_string(),
+                                                    distribution: feature.distribution.unwrap_or_default(),
+                                                    is_editing: true,
+                                                    feature_index: Some(index),
+                                                    component_index: Some(selected_idx),
+                                                });
+                                            }
+                                            ui.close_menu();
+                                        }
+                                        
+                                        if ui.button(egui::RichText::new("🗑 Delete").color(egui::Color32::RED)).clicked() {
+                                            delete_index = Some(index);
+                                            ui.close_menu();
+                                        }
+                                    });
+                                });
+                            }
+            
+                            // Handle deletion after the iteration
+                            if let Some(index) = delete_index {
+                                if let Some(component) = app.state.project.components.get_mut(selected_idx) {
+                                    component.features.remove(index);
+                                    
+                                    // Update selection
+                                    if let Some(feat_idx) = app.state.ui.feature_list_state.selected() {
+                                        if feat_idx >= component.features.len() {
+                                            app.state.ui.feature_list_state
+                                                .select(Some(component.features.len().saturating_sub(1)));
+                                        }
+                                    }
+            
+                                    // Save changes
+                                    if let Err(e) = app.state.file_manager.save_project(
+                                        &app.state.project.project_file,
+                                        &app.state.project.components,
+                                        &app.state.analysis.analyses,
+                                    ) {
+                                        println!("Error saving project after feature delete: {}", e);
+                                    }
+                                }
+                            }
+                        });
                 } else {
                     ui.centered_and_justified(|ui| {
                         ui.label("Select a component to view details");
@@ -310,82 +420,164 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
         });
 }
 
-fn draw_component_details(ui: &mut egui::Ui, app: &mut App, component: &crate::config::Component) {
-    ui.heading(&component.name);
-    
-    if let Some(desc) = &component.description {
-        ui.label(desc);
-    }
-    
-    ui.add_space(16.0);
-    
-    // Features section
-    ui.heading("Features");
-    ui.add_space(4.0);
 
-    // Add Feature button
-    if ui.button("Add Feature").clicked() {
-        // TODO: Show feature creation dialog
-    }
 
-    ui.add_space(8.0);
+pub fn show_feature_edit_dialog(
+    ctx: &egui::Context,
+    dialog_state: &mut DialogState,
+    app: &mut App,
+) {
+    let mut should_close = false;
+    let mut save_changes = false;
 
-    // Features list
-    for (index, feature) in component.features.iter().enumerate() {
-        let is_selected = app.state.ui.feature_list_state.selected() == Some(index);
+    if let DialogState::FeatureEdit(data) = dialog_state {
+        let title = if data.is_editing { "Edit Feature" } else { "New Feature" };
         
-        ui.group(|ui| {
-            let response = ui.selectable_label(
-                is_selected,
-                format!("{} ({:?})", feature.name, feature.feature_type)
-            );
+        egui::Window::new(title)
+            .collapsible(false)
+            .resizable(false)
+            .fixed_size([320.0, 280.0])
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    let name_valid = !data.name.trim().is_empty();
+                    let value_valid = data.value.parse::<f64>().is_ok();
+                    let plus_tol_valid = data.plus_tolerance.parse::<f64>().is_ok();
+                    let minus_tol_valid = data.minus_tolerance.parse::<f64>().is_ok();
 
-            if response.clicked() {
-                app.state.ui.feature_list_state.select(Some(index));
-            }
+                    // Name field
+                    ui.horizontal(|ui| {
+                        ui.label("Name:");
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut data.name)
+                                .hint_text("Enter feature name")
+                        );
+                        if !name_valid && response.lost_focus() {
+                            ui.colored_label(egui::Color32::RED, "⚠");
+                        }
+                    });
 
-            // Feature details if selected
-            if is_selected {
-                ui.add_space(4.0);
-                draw_feature_details(ui, feature);
-            }
+                    // Type selection
+                    ui.horizontal(|ui| {
+                        ui.label("Type:");
+                        ui.radio_value(&mut data.feature_type, FeatureType::External, "External");
+                        ui.radio_value(&mut data.feature_type, FeatureType::Internal, "Internal");
+                    });
 
-            // Context menu for feature actions
-            response.context_menu(|ui| {
-                if ui.button("Edit").clicked() {
-                    // TODO: Show feature edit dialog
-                    ui.close_menu();
-                }
-                if ui.button("View Mates").clicked() {
-                    // TODO: Switch to mates view filtered by feature
-                    ui.close_menu();
-                }
-                ui.separator();
-                let delete_text = format!("Delete '{}'", feature.name);
-                if ui.button(egui::RichText::new(delete_text).color(egui::Color32::RED))
-                    .clicked() 
-                {
-                    // TODO: Show delete confirmation
-                    ui.close_menu();
-                }
+                    // Value and tolerances
+                    ui.horizontal(|ui| {
+                        ui.label("Value:");
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut data.value)
+                                .hint_text("0.000")
+                        );
+                        if !value_valid && response.lost_focus() {
+                            ui.colored_label(egui::Color32::RED, "⚠");
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("+ Tolerance:");
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut data.plus_tolerance)
+                                .hint_text("0.000")
+                        );
+                        if !plus_tol_valid && response.lost_focus() {
+                            ui.colored_label(egui::Color32::RED, "⚠");
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("- Tolerance:");
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut data.minus_tolerance)
+                                .hint_text("0.000")
+                        );
+                        if !minus_tol_valid && response.lost_focus() {
+                            ui.colored_label(egui::Color32::RED, "⚠");
+                        }
+                    });
+
+                    // Distribution type
+                    ui.horizontal(|ui| {
+                        ui.label("Distribution:");
+                        egui::ComboBox::from_label("")
+                            .selected_text(format!("{:?}", data.distribution))
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut data.distribution, DistributionType::Normal, "Normal");
+                                ui.selectable_value(&mut data.distribution, DistributionType::Uniform, "Uniform");
+                                ui.selectable_value(&mut data.distribution, DistributionType::Triangular, "Triangular");
+                                ui.selectable_value(&mut data.distribution, DistributionType::LogNormal, "LogNormal");
+                            });
+                    });
+
+                    ui.add_space(8.0);
+
+                    // Action buttons
+                    ui.horizontal(|ui| {
+                        let can_save = name_valid && value_valid && plus_tol_valid && minus_tol_valid;
+                        if ui.add_enabled(can_save, egui::Button::new("Save")).clicked() {
+                            save_changes = true;
+                            should_close = true;
+                        }
+
+                        if ui.button("Cancel").clicked() {
+                            should_close = true;
+                        }
+                    });
+
+                    // Validation message
+                    if !name_valid || !value_valid || !plus_tol_valid || !minus_tol_valid {
+                        ui.colored_label(egui::Color32::RED, "All fields must be valid numbers");
+                    }
+                });
             });
-        });
+
+        // Apply changes after the UI is done
+        if save_changes {
+            if let (Ok(value), Ok(plus_tol), Ok(minus_tol)) = (
+                data.value.parse::<f64>(),
+                data.plus_tolerance.parse::<f64>(),
+                data.minus_tolerance.parse::<f64>(),
+            ) {
+                let new_feature = Feature {
+                    name: data.name.clone(),
+                    feature_type: data.feature_type,
+                    dimension: crate::config::Dimension {
+                        value,
+                        plus_tolerance: plus_tol,
+                        minus_tolerance: minus_tol,
+                    },
+                    distribution: Some(data.distribution),
+                    distribution_params: None, // Will be calculated automatically
+                };
+
+                if data.is_editing {
+                    if let (Some(comp_idx), Some(feat_idx)) = (data.component_index, data.feature_index) {
+                        if let Some(component) = app.state.project.components.get_mut(comp_idx) {
+                            if let Some(feature) = component.features.get_mut(feat_idx) {
+                                *feature = new_feature;
+                            }
+                        }
+                    }
+                } else if let Some(comp_idx) = data.component_index {
+                    if let Some(component) = app.state.project.components.get_mut(comp_idx) {
+                        component.features.push(new_feature);
+                    }
+                }
+
+                // Save project
+                if let Err(e) = app.state.file_manager.save_project(
+                    &app.state.project.project_file,
+                    &app.state.project.components,
+                    &app.state.analysis.analyses,
+                ) {
+                    println!("Error saving project after feature update: {}", e);
+                }
+            }
+        }
     }
-}
 
-fn draw_feature_details(ui: &mut egui::Ui, feature: &Feature) {
-    ui.horizontal(|ui| {
-        ui.label("Value:");
-        ui.strong(format!("{:.3}", feature.dimension.value));
-        ui.label("Tolerances:");
-        ui.strong(format!("[{:+.3}/{:+.3}]", 
-            feature.dimension.plus_tolerance,
-            feature.dimension.minus_tolerance));
-    });
-
-    if let Some(dist) = &feature.distribution {
-        ui.label(format!("Distribution: {:?}", dist));
+    if should_close {
+        *dialog_state = DialogState::None;
     }
-
-    // TODO: Add small preview of related mates
 }

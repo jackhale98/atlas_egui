@@ -8,6 +8,11 @@ pub enum FeatureType {
     Internal,
 }
 
+impl Default for FeatureType {
+    fn default() -> Self {
+        FeatureType::External
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Feature {

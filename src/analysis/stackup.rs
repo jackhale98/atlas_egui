@@ -25,6 +25,12 @@ pub enum DistributionType {
     LogNormal,
 }
 
+impl Default for DistributionType {
+    fn default() -> Self {
+        DistributionType::Normal
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DistributionParams {
     pub dist_type: DistributionType,
