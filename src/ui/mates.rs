@@ -265,34 +265,38 @@ pub fn show_mate_edit_dialog(
                     // Component A selection
                     ui.group(|ui| {
                         ui.heading("Component A");
-                        egui::ComboBox::from_label("Select Component")
-                            .selected_text(&data.component_a)
-                            .show_ui(ui, |ui| {
-                                for component in &app.state.project.components {
-                                    ui.selectable_value(
-                                        &mut data.component_a,
-                                        component.name.clone(),
-                                        &component.name
-                                    );
-                                }
-                            });
-
-                        if let Some(component) = get_component_by_name(
-                            &app.state.project.components,
-                            &data.component_a
-                        ) {
-                            egui::ComboBox::from_label("Select Feature")
-                                .selected_text(&data.feature_a)
+                        ui.push_id("component_a_selection", |ui| {
+                            egui::ComboBox::from_label("Select Component")
+                                .selected_text(&data.component_a)
                                 .show_ui(ui, |ui| {
-                                    for feature in &component.features {
+                                    for component in &app.state.project.components {
                                         ui.selectable_value(
-                                            &mut data.feature_a,
-                                            feature.name.clone(),
-                                            &feature.name
+                                            &mut data.component_a,
+                                            component.name.clone(),
+                                            &component.name
                                         );
                                     }
                                 });
-                        }
+                        });
+
+                        ui.push_id("feature_a_selection", |ui| {
+                            if let Some(component) = get_component_by_name(
+                                &app.state.project.components,
+                                &data.component_a
+                            ) {
+                                egui::ComboBox::from_label("Select Feature")
+                                    .selected_text(&data.feature_a)
+                                    .show_ui(ui, |ui| {
+                                        for feature in &component.features {
+                                            ui.selectable_value(
+                                                &mut data.feature_a,
+                                                feature.name.clone(),
+                                                &feature.name
+                                            );
+                                        }
+                                    });
+                            }
+                        });
                     });
 
                     ui.add_space(8.0);

@@ -219,5 +219,6 @@ impl eframe::App for AtlasApp {
         self.show_error_modal(ctx);
         crate::ui::components::show_component_edit_dialog(ctx, &mut self.dialog_state, &mut self.app);
         crate::ui::components::show_feature_edit_dialog(ctx, &mut self.dialog_state, &mut self.app);
+        crate::ui::mates::show_mate_edit_dialog(ctx, &mut self.dialog_state, &mut self.app);
     }
 }
