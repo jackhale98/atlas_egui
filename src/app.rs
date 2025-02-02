@@ -7,8 +7,18 @@ use eframe::egui;
 use rfd::FileDialog;
 use std::path::PathBuf;
 
+
+#[derive(Default)]
+pub enum AppMessage {
+    #[default]
+    None,
+    SwitchTab(ScreenMode),
+}
+
+
 pub struct App {
     pub state: AppState,
+    pub message: AppMessage,
     input_handler: InputHandler,
 }
 
@@ -16,6 +26,7 @@ impl App {
     pub fn new() -> Self {
         Self {
             state: AppState::default(),
+            message: AppMessage::default(),
             input_handler: InputHandler::new(),
         }
     }
@@ -26,6 +37,10 @@ impl App {
 
     pub fn state_mut(&mut self) -> &mut AppState {
         &mut self.state
+    }
+
+    pub fn switch_tab(&mut self, mode: ScreenMode) {
+        self.message = AppMessage::SwitchTab(mode);
     }
 }
 
@@ -192,6 +207,16 @@ impl AtlasApp {
 
 impl eframe::App for AtlasApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // At the start of update, process any pending messages
+        match &self.app.message {
+            AppMessage::SwitchTab(mode) => {
+                self.current_tab = *mode;
+                self.app.state.ui.current_screen = *mode;
+                self.app.message = AppMessage::None;
+            }
+            AppMessage::None => {}
+        }
+
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             self.show_menu(ui);
         });

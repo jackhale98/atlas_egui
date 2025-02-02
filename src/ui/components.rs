@@ -206,7 +206,8 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                     .id_source("components_list_scroll")
                     .show(ui, |ui| {
                         let mut delete_index = None;
-                        
+                        let mut switch_to_mates = false;
+                        let mut new_filter = None;
                         for (index, component) in app.state.project.components.iter().enumerate() {
                             let is_selected = Some(index) == app.state.ui.component_list_state.selected();
                             let response = ui.selectable_label(
@@ -239,8 +240,8 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                 }
 
                                 if ui.button("🔍 Show All Mates").clicked() {
-                                    app.state.mates.filter = Some(MateFilter::Component(component.name.clone()));
-                                    app.state.ui.current_screen = ScreenMode::Mates;
+                                    switch_to_mates = true;
+                                    new_filter = Some(MateFilter::Component(component.name.clone()));
                                     ui.close_menu();
                                 }
                 
@@ -272,6 +273,13 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                     ui.close_menu();
                                 }
                             });
+                        }
+
+                        if let Some(filter) = new_filter {
+                            app.state.mates.filter = Some(filter);
+                        }
+                        if switch_to_mates {
+                            app.switch_tab(ScreenMode::Mates);
                         }
 
                         if let Some(index) = delete_index {
@@ -345,6 +353,8 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                         .show(ui, |ui| {
                             ui.set_min_width(ui.available_width());
                             let mut delete_index = None;
+                            let mut switch_to_mates = false;
+                            let mut new_filter = None;
                             
                             // Get the current component's name
                             let component_name = if let Some(comp_idx) = app.state.ui.component_list_state.selected() {
@@ -403,11 +413,11 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                         }
 
                                         if ui.button("🔍 Show Feature Mates").clicked() {
-                                            app.state.mates.filter = Some(MateFilter::Feature(
+                                            switch_to_mates = true;
+                                            new_filter = Some(MateFilter::Feature(
                                                 component_name.clone(),
                                                 name.clone()
                                             ));
-                                            app.state.ui.current_screen = ScreenMode::Mates;
                                             ui.close_menu();
                                         }
                                     
@@ -416,7 +426,7 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                             app.state.mates.filter = Some(MateFilter::Component(
                                                 component_name.clone()
                                             ));
-                                            app.state.ui.current_screen = ScreenMode::Mates;
+                                            app.switch_tab(ScreenMode::Mates);
                                             ui.close_menu();
                                         }
                                         
@@ -470,6 +480,13 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                     }
                                 });
                                 ui.add_space(4.0);
+                            }
+
+                            if let Some(filter) = new_filter {
+                                app.state.mates.filter = Some(filter);
+                            }
+                            if switch_to_mates {
+                                app.switch_tab(ScreenMode::Mates);
                             }
 
                             if let Some(index) = delete_index {
