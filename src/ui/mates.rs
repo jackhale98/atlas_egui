@@ -4,6 +4,12 @@ use crate::config::{Component, Feature, mate::FitType};
 use crate::state::mate_state::{get_component_by_name, MateFilter};
 use crate::ui::dialog::{DialogState, MateEditData};
 
+fn validate_mate(app: &App, mate: &crate::config::mate::Mate) -> Option<crate::config::mate::FitValidation> {
+    let feature_a = find_feature(app, &mate.component_a, &mate.feature_a)?;
+    let feature_b = find_feature(app, &mate.component_b, &mate.feature_b)?;
+    Some(mate.validate(feature_a, feature_b))
+}
+
 pub fn draw_mates_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut DialogState) {
     let available_size = ui.available_size();
 
@@ -16,18 +22,27 @@ pub fn draw_mates_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut Dial
                 ui.set_min_width(available_size.x * 0.4);
                 ui.set_min_height(available_size.y);
                 
-                // Header with filter info
-                let header_text = match &app.state.mates.filter {
+                // Add this section for filter status and controls
+                match &app.state.mates.filter {
                     Some(MateFilter::Component(comp)) => {
-                        format!("Mates for component {}", comp)
+                        ui.heading(format!("Mates for component {}", comp));
+                        if ui.button("🔄 Clear Filter").clicked() {
+                            app.state.mates.filter = None;
+                            app.state.ui.mate_list_state.select(None);
+                        }
                     },
                     Some(MateFilter::Feature(comp, feat)) => {
-                        format!("Mates for {}.{}", comp, feat)
+                        ui.heading(format!("Mates for {}.{}", comp, feat));
+                        if ui.button("🔄 Clear Filter").clicked() {
+                            app.state.mates.filter = None;
+                            app.state.ui.mate_list_state.select(None);
+                        }
                     },
-                    None => "Mates".to_string(),
-                };
-
-                ui.heading(&header_text);
+                    None => {
+                        ui.heading("Mates");
+                    }
+                }
+                
                 ui.add_space(4.0);
 
                 // Add Mate button
@@ -35,19 +50,11 @@ pub fn draw_mates_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut Dial
                     *dialog_state = DialogState::MateEdit(MateEditData::default());
                 }
 
-                // Clear filter button if filtered
-                if app.state.mates.filter.is_some() {
-                    if ui.button("🔄 Clear Filter").clicked() {
-                        app.state.mates.filter = None;
-                        app.state.ui.mate_list_state.select(None);
-                    }
-                }
-
                 ui.add_space(8.0);
                 ui.separator();
                 ui.add_space(8.0);
 
-                // Mates list
+                // Update to use filtered_mates
                 egui::ScrollArea::vertical()
                     .id_source("mates_list_scroll")
                     .show(ui, |ui| {

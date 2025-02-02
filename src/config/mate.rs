@@ -1,5 +1,6 @@
 // src/config/mate.rs
 use serde::{Serialize, Deserialize};
+use std::fmt;
 use super::Feature;
 use super::feature::FeatureType;
 
@@ -13,6 +14,16 @@ pub enum FitType {
 impl Default for FitType {
     fn default() -> Self {
         FitType::Clearance // Makes sense as a default since it's the most common
+    }
+}
+
+impl fmt::Display for FitType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FitType::Clearance => write!(f, "Clearance"),
+            FitType::Transition => write!(f, "Transition"),
+            FitType::Interference => write!(f, "Interference"),
+        }
     }
 }
 

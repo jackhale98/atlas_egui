@@ -5,6 +5,22 @@ use crate::config::{Feature, FeatureType};
 use crate::ui::dialog::{ComponentEditData, DialogState, FeatureEditData};
 use crate::config::ComponentReference;
 use crate::analysis::DistributionType;
+use crate::state::mate_state::MateFilter;
+use crate::state::ui_state::ScreenMode;
+
+
+fn find_feature<'a>(
+    app: &'a App,
+    component_name: &str,
+    feature_name: &str,
+) -> Option<&'a Feature> {
+    app.state.project.components
+        .iter()
+        .find(|c| c.name == component_name)?
+        .features
+        .iter()
+        .find(|f| f.name == feature_name)
+}
 
 pub fn show_component_edit_dialog(
     ctx: &egui::Context,
@@ -322,6 +338,13 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                             ui.set_min_width(ui.available_width());
                             let mut delete_index = None;
                             
+                            // Get the current component's name
+                            let component_name = if let Some(comp_idx) = app.state.ui.component_list_state.selected() {
+                                app.state.project.components[comp_idx].name.clone()
+                            } else {
+                                return;
+                            };
+                            
                             for (index, (name, ftype, value, plus_tol, minus_tol, distribution)) 
                                 in features_display.iter().enumerate() 
                             {
@@ -330,19 +353,31 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                 ui.group(|ui| {
                                     ui.set_width(ui.available_width());
                                     
-                                    ui.horizontal(|ui| {
-                                        ui.set_min_width(ui.available_width());
-                                        let response = ui.selectable_label(
-                                            is_selected,
-                                            format!("{} ({:?})", name, ftype)
-                                        );
+                                    let feature_text = format!(
+                                        "{} ({:?}) - {:.3} [{:+.3}/{:+.3}] {:?}", 
+                                        name, 
+                                        ftype,
+                                        value,
+                                        plus_tol,
+                                        minus_tol,
+                                        distribution.unwrap_or(DistributionType::Normal)
+                                    );
+                                    
+                                    let response = ui.selectable_label(is_selected, feature_text);
+                    
+                                    if response.clicked() {
+                                        app.state.ui.feature_list_state.select(Some(index));
+                                        
+                                        // Set filter when feature is selected
+                                        app.state.mates.filter = Some(MateFilter::Feature(
+                                            component_name.clone(),
+                                            name.clone()
+                                        ));
+                                    }
 
-                                        if response.clicked() {
-                                            app.state.ui.feature_list_state.select(Some(index));
-                                        }
-
-                                        response.context_menu(|ui| {
-                                            if ui.button("✏ Edit").clicked() {
+                                    response.context_menu(|ui| {
+                                        // Existing menu items remain the same
+                                        if ui.button("✏ Edit").clicked() {
                                                 if let Some(feature) = &app.state.project.components[selected_idx].features.get(index) {
                                                     *dialog_state = DialogState::FeatureEdit(FeatureEditData {
                                                         name: feature.name.clone(),
@@ -356,31 +391,64 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                                         component_index: Some(selected_idx),
                                                     });
                                                 }
-                                                ui.close_menu();
-                                            }
-                                            
-                                            if ui.button(egui::RichText::new("🗑 Delete").color(egui::Color32::RED)).clicked() {
-                                                delete_index = Some(index);
-                                                ui.close_menu();
-                                            }
-                                        });
+                                            ui.close_menu();
+                                        }
+
+                                        if ui.button("🔍 Show Related Mates").clicked() {
+                                            app.state.mates.filter = Some(MateFilter::Feature(
+                                                component_name.clone(),
+                                                name.clone()
+                                            ));
+                                            app.state.ui.current_screen = ScreenMode::Mates;
+                                            ui.close_menu();
+                                        }
+                                        
+                                        ui.separator();
+                                        
+                                        if ui.button(egui::RichText::new("🗑 Delete").color(egui::Color32::RED)).clicked() {
+                                            delete_index = Some(index);
+                                            ui.close_menu();
+                                        }
                                     });
 
+                                    // Add related mates display when selected
                                     if is_selected {
-                                        ui.add_space(4.0);
-                                        ui.horizontal(|ui| {
-                                            ui.label("Value:");
-                                            ui.strong(format!("{:.3}", value));
-                                            ui.add_space(20.0);
-                                            ui.label("Tolerances:");
-                                            ui.strong(format!("[{:+.3}/{:+.3}]", plus_tol, minus_tol));
-                                        });
-
-                                        if let Some(dist) = distribution {
-                                            ui.horizontal(|ui| {
-                                                ui.label("Distribution:");
-                                                ui.strong(format!("{:?}", dist));
-                                            });
+                                        let related_mates = app.state.mates.get_related_mates(&component_name, name);
+                                        if !related_mates.is_empty() {
+                                            ui.add_space(4.0);
+                                            ui.label("Related Mates:");
+                                            for mate in related_mates {
+                                                let other_component = if mate.component_a == component_name {
+                                                    &mate.component_b
+                                                } else {
+                                                    &mate.component_a
+                                                };
+                                                let other_feature = if mate.component_a == component_name {
+                                                    &mate.feature_b
+                                                } else {
+                                                    &mate.feature_a
+                                                };
+                                                
+                                                let feature_a = find_feature(app, &mate.component_a, &mate.feature_a);
+                                                let feature_b = find_feature(app, &mate.component_b, &mate.feature_b);
+                                                let validation_status = if let (Some(feat_a), Some(feat_b)) = (feature_a, feature_b) {
+                                                    if mate.validate(feat_a, feat_b).is_valid {
+                                                        "Valid"
+                                                    } else {
+                                                        "Invalid"
+                                                    }
+                                                } else {
+                                                    "Unknown"
+                                                };
+                                                
+                                                ui.label(format!(
+                                                    "• {} with {}.{} ({})",
+                                                    mate.fit_type,
+                                                    other_component,
+                                                    other_feature,
+                                                    validation_status
+                                                ));
+                                            }
                                         }
                                     }
                                 });
