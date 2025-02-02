@@ -238,6 +238,14 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                     ui.close_menu();
                                 }
 
+                                if ui.button("🔍 Show All Mates").clicked() {
+                                    app.state.mates.filter = Some(MateFilter::Component(component.name.clone()));
+                                    app.state.ui.current_screen = ScreenMode::Mates;
+                                    ui.close_menu();
+                                }
+                
+                                ui.separator();
+
                                 if let Some(selected_idx) = app.state.ui.component_list_state.selected() {
                                     if ui.button("➕ Add Feature").clicked() {
                                         *dialog_state = DialogState::FeatureEdit(FeatureEditData {
@@ -394,10 +402,19 @@ pub fn draw_components_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
                                             ui.close_menu();
                                         }
 
-                                        if ui.button("🔍 Show Related Mates").clicked() {
+                                        if ui.button("🔍 Show Feature Mates").clicked() {
                                             app.state.mates.filter = Some(MateFilter::Feature(
                                                 component_name.clone(),
                                                 name.clone()
+                                            ));
+                                            app.state.ui.current_screen = ScreenMode::Mates;
+                                            ui.close_menu();
+                                        }
+                                    
+                                        // Add option to show all mates for the parent component
+                                        if ui.button("🔍 Show Component Mates").clicked() {
+                                            app.state.mates.filter = Some(MateFilter::Component(
+                                                component_name.clone()
                                             ));
                                             app.state.ui.current_screen = ScreenMode::Mates;
                                             ui.close_menu();
