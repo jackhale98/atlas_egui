@@ -236,7 +236,7 @@ impl eframe::App for AtlasApp {
                     ui.label("Dependencies View - Coming Soon");
                 },
                 ScreenMode::Analysis => {
-                    ui.label("Analysis View - Coming Soon");
+                    crate::ui::analysis::draw_analysis_view(ui, &mut self.app, &mut self.dialog_state);
                 },
             }
         });

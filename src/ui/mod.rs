@@ -5,4 +5,4 @@ pub mod dialog;
 pub mod mates;
 
 // Keep these modules for reference while we migrate them
-mod analysis;
+pub mod analysis;

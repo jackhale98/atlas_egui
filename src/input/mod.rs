@@ -9,14 +9,12 @@ pub mod project;
 pub mod component;
 pub mod feature;
 pub mod mate;
-pub mod analysis;
 
 pub struct InputHandler {
     project_handler: project::ProjectInputHandler,
     component_handler: component::ComponentInputHandler,
     feature_handler: feature::FeatureInputHandler,
     mate_handler: mate::MateInputHandler,
-    analysis_handler: analysis::AnalysisInputHandler,
 }
 
 impl InputHandler {
@@ -26,7 +24,6 @@ impl InputHandler {
             component_handler: component::ComponentInputHandler::new(),
             feature_handler: feature::FeatureInputHandler::new(),
             mate_handler: mate::MateInputHandler::new(), 
-            analysis_handler: analysis::AnalysisInputHandler::new(),
         }
     }
 
@@ -46,7 +43,6 @@ impl InputHandler {
                 },
             },
             ScreenMode::Mates => self.mate_handler.handle_key(key, state),
-            ScreenMode::Analysis => self.analysis_handler.handle_key(key, state),
             _ => None,
         } {
             return cmd.execute(state);

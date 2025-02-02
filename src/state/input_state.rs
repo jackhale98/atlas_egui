@@ -173,12 +173,11 @@ pub struct AnalysisInputs {
 
 #[derive(Debug)]
 pub struct ContributionInputs {
+    pub selected_component: String,
+    pub selected_feature: String,
     pub direction: f64,
     pub half_count: bool,
     pub distribution_type: DistributionType,
-    pub dist_param1: Input,
-    pub dist_param2: Input,
-    pub dist_param3: Input,  // Added for triangular distribution
 }
 
 impl Default for AnalysisInputs {
@@ -200,12 +199,11 @@ impl Default for AnalysisInputs {
 impl Default for ContributionInputs {
     fn default() -> Self {
         Self {
+            selected_component: String::new(),
+            selected_feature: String::new(),
             direction: 1.0,
             half_count: false,
             distribution_type: DistributionType::Normal,
-            dist_param1: Input::default(),
-            dist_param2: Input::default(),
-            dist_param3: Input::default(),
         }
     }
 }
