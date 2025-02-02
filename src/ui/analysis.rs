@@ -44,7 +44,6 @@ pub fn draw_analysis_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut D
 
 // Rest of the implementation remains the same as in the previous artifact
 fn draw_contribution_dialog(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut DialogState) {
-    // Existing implementation, with dialog_state added as a parameter if needed
     let mut can_save = false;
     
     ui.heading(match app.state.ui.dialog_mode {
@@ -53,8 +52,87 @@ fn draw_contribution_dialog(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut
         _ => "Contribution",
     });
     
-    // Remainder of the existing implementation...
-    
+    // Component selection
+    ui.horizontal(|ui| {
+        ui.label("Component:");
+        egui::ComboBox::from_label("Select Component")
+            .selected_text(app.state.input.contribution_inputs.selected_component.clone())
+            .show_ui(ui, |ui| {
+                for component in &app.state.project.components {
+                    ui.selectable_value(
+                        &mut app.state.input.contribution_inputs.selected_component,
+                        component.name.clone(),
+                        &component.name
+                    );
+                }
+            });
+    });
+
+    // Feature selection (only show if a component is selected)
+    if !app.state.input.contribution_inputs.selected_component.is_empty() {
+        ui.horizontal(|ui| {
+            ui.label("Feature:");
+            
+            // Find the selected component
+            if let Some(component) = app.state.project.components.iter()
+                .find(|c| c.name == app.state.input.contribution_inputs.selected_component) {
+                
+                // Check if we have features
+                if !component.features.is_empty() {
+                    egui::ComboBox::from_label("Select Feature")
+                        .selected_text(app.state.input.contribution_inputs.selected_feature.clone())
+                        .show_ui(ui, |ui| {
+                            for feature in &component.features {
+                                ui.selectable_value(
+                                    &mut app.state.input.contribution_inputs.selected_feature,
+                                    feature.name.clone(),
+                                    &feature.name
+                                );
+                            }
+                        });
+                } else {
+                    ui.label("No features available");
+                }
+            }
+        });
+    }
+
+    // Validate feature selection
+    can_save = !app.state.input.contribution_inputs.selected_component.is_empty() 
+        && !app.state.input.contribution_inputs.selected_feature.is_empty();
+
+    // Direction selection
+    ui.horizontal(|ui| {
+        ui.label("Direction:");
+        let mut positive = app.state.input.contribution_inputs.direction > 0.0;
+        if ui.radio_value(&mut positive, true, "Positive").changed() ||
+           ui.radio_value(&mut positive, false, "Negative").changed() {
+            app.state.input.contribution_inputs.direction = if positive { 1.0 } else { -1.0 };
+        }
+    });
+
+    // Half count checkbox
+    ui.checkbox(
+        &mut app.state.input.contribution_inputs.half_count, 
+        "Half Count"
+    );
+
+    // Distribution type selection
+    ui.horizontal(|ui| {
+        ui.label("Distribution:");
+        let mut dist_type = app.state.input.contribution_inputs.distribution_type;
+        
+        egui::ComboBox::from_label("")
+            .selected_text(format!("{:?}", dist_type))
+            .show_ui(ui, |ui| {
+                for dtype in [DistributionType::Normal, DistributionType::Uniform, 
+                              DistributionType::Triangular, DistributionType::LogNormal] {
+                    ui.selectable_value(&mut dist_type, dtype, format!("{:?}", dtype));
+                }
+                app.state.input.contribution_inputs.distribution_type = dist_type;
+            });
+    });
+
     // Action buttons
     ui.horizontal(|ui| {
         // Save button
