@@ -8,7 +8,7 @@ use crate::analysis::stackup::{
     StackupContribution, DistributionType, DistributionParams
 };
 use crate::analysis::MonteCarloSettings;
-use crate::ui::dialog::{DialogState, AnalysisEditData};
+use crate::ui::dialog::{DialogState, AnalysisEditData, ContributionEditData};
 use crate::config::Feature;
 use uuid::Uuid;
 
@@ -175,7 +175,7 @@ pub fn draw_analysis_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut D
 
                     // Content based on selected tab
                     match app.state.ui.analysis_tab {
-                        AnalysisTab::Details => draw_analysis_details(ui, app, analysis),
+                        AnalysisTab::Details => draw_analysis_details(ui, app, analysis, dialog_state),
                         AnalysisTab::Results => {
                             let results = app.state.analysis.latest_results.get(&analysis.id);
                             draw_analysis_results(ui, app, analysis, results);
@@ -315,7 +315,7 @@ fn draw_analysis_list(ui: &mut egui::Ui, app: &mut App) {
         });
 }
 
-fn draw_analysis_details(ui: &mut egui::Ui, app: &mut App, analysis: &StackupAnalysis) {
+fn draw_analysis_details(ui: &mut egui::Ui, app: &mut App, analysis: &StackupAnalysis, dialog_state: &mut DialogState) {
     ui.group(|ui| {
         // Analysis header section with edit button
         ui.horizontal(|ui| {
@@ -366,7 +366,15 @@ fn draw_analysis_details(ui: &mut egui::Ui, app: &mut App, analysis: &StackupAna
             ui.horizontal(|ui| {
                 ui.heading("Contributions");
                 if ui.button("➕ Add Contribution").clicked() {
-                    app.state.ui.dialog_mode = DialogMode::AddContribution;
+                    *dialog_state = DialogState::ContributionEdit(ContributionEditData {
+                        component_id: String::new(),
+                        feature_id: String::new(),
+                        direction: 1.0,
+                        half_count: false,
+                        analysis_index: Some(app.state.ui.analysis_list_state.selected().unwrap_or(0)),
+                        contribution_index: None,
+                        is_editing: false,
+                    });
                 }
             });
 
