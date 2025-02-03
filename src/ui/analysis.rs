@@ -450,14 +450,15 @@ fn draw_analysis_details(ui: &mut egui::Ui, app: &mut App, analysis: &StackupAna
 }
 
 fn draw_analysis_results(ui: &mut egui::Ui, app: &mut App, analysis: &StackupAnalysis, results: Option<&AnalysisResults>) {
-    // Split screen into results and history
-    egui::Grid::new("results_grid")
-        .num_columns(2)
-        .spacing([20.0, 4.0])
-        .show(ui, |ui| {
+    // Ensure full width usage
+    ui.vertical(|ui| {
+        ui.set_width(ui.available_width());
+        
+        // Split the view horizontally
+        ui.horizontal(|ui| {
             // Left side - Latest results
             ui.vertical(|ui| {
-                ui.set_min_width(ui.available_width() * 0.7);
+                ui.set_width(ui.available_width() * 0.7);
                 
                 if let Some(results) = app.state.analysis.latest_results.get(&analysis.id) {
                     ui.group(|ui| {
@@ -469,33 +470,32 @@ fn draw_analysis_results(ui: &mut egui::Ui, app: &mut App, analysis: &StackupAna
                             ui.heading("Nominal Value");
                             ui.strong(format!("{:.6}", results.nominal));
                         });
+                        ui.add_space(8.0);
+                        // Analysis results - use full width
+                        ui.horizontal(|ui| {
+                            ui.set_width(ui.available_width());
+                            
+                            if let Some(wc) = &results.worst_case {
+                                ui.vertical(|ui| {
+                                    ui.group(|ui| {
+                                        ui.heading("Worst Case");
+                                        ui.label(format!("Min: {:.6}", wc.min));
+                                        ui.label(format!("Max: {:.6}", wc.max));
+                                        ui.label(format!("Range: {:.6}", wc.max - wc.min));
+                                    });
+                                });
 
-                        // Show results in columns for better space utilization
-                        egui::Grid::new("analysis_results")
-                            .num_columns(2)
-                            .spacing([40.0, 8.0])
-                            .show(ui, |ui| {
-                                if let Some(wc) = &results.worst_case {
+                                ui.add_space(8.0);
+
+                                if let Some(rss) = &results.rss {
                                     ui.vertical(|ui| {
                                         ui.group(|ui| {
-                                            ui.heading("Worst Case");
-                                            ui.label(format!("Min: {:.6}", wc.min));
-                                            ui.label(format!("Max: {:.6}", wc.max));
-                                            ui.label(format!("Range: {:.6}", wc.max - wc.min));
+                                            ui.heading("RSS Analysis");
+                                            ui.label(format!("Mean: {:.6}", results.nominal));
+                                            ui.label(format!("Std Dev: {:.6}", rss.std_dev));
+                                            ui.label(format!("3σ Range: [{:.6}, {:.6}]", rss.min, rss.max));
                                         });
                                     });
-
-                                    if let Some(rss) = &results.rss {
-                                        ui.vertical(|ui| {
-                                            ui.group(|ui| {
-                                                ui.heading("RSS Analysis");
-                                                ui.label(format!("Mean: {:.6}", results.nominal));
-                                                ui.label(format!("Std Dev: {:.6}", rss.std_dev));
-                                                ui.label(format!("3σ Range: [{:.6}, {:.6}]", rss.min, rss.max));
-                                            });
-                                        });
-                                        ui.end_row();
-                                    }
                                 }
 
                                 if let Some(mc) = &results.monte_carlo {
@@ -505,22 +505,27 @@ fn draw_analysis_results(ui: &mut egui::Ui, app: &mut App, analysis: &StackupAna
                                             ui.label(format!("Mean: {:.6}", mc.mean));
                                             ui.label(format!("Std Dev: {:.6}", mc.std_dev));
                                             ui.label(format!("Range: [{:.6}, {:.6}]", mc.min, mc.max));
-                                            
-                                            // Add confidence intervals
-                                            ui.add_space(8.0);
-                                            ui.label("Confidence Intervals:");
-                                            for interval in &mc.confidence_intervals {
-                                                ui.label(format!(
-                                                    "{:.1}%: [{:.6}, {:.6}]",
-                                                    interval.confidence_level * 100.0,
-                                                    interval.lower_bound,
-                                                    interval.upper_bound
-                                                ));
-                                            }
                                         });
                                     });
                                 }
+                            }
+                        });
+
+                        // Confidence Intervals
+                        if let Some(mc) = &results.monte_carlo {
+                            ui.add_space(8.0);
+                            ui.group(|ui| {
+                                ui.heading("Confidence Intervals");
+                                for interval in &mc.confidence_intervals {
+                                    ui.label(format!(
+                                        "{:.1}%: [{:.6}, {:.6}]",
+                                        interval.confidence_level * 100.0,
+                                        interval.lower_bound,
+                                        interval.upper_bound
+                                    ));
+                                }
                             });
+                        }
                     });
                 } else {
                     ui.centered_and_justified(|ui| {
@@ -531,7 +536,7 @@ fn draw_analysis_results(ui: &mut egui::Ui, app: &mut App, analysis: &StackupAna
 
             // Right side - History viewer
             ui.vertical(|ui| {
-                ui.set_min_width(ui.available_width() * 0.3);
+                ui.set_width(ui.available_width());
                 ui.group(|ui| {
                     ui.heading("Analysis History");
                     
@@ -574,6 +579,7 @@ fn draw_analysis_results(ui: &mut egui::Ui, app: &mut App, analysis: &StackupAna
                 });
             });
         });
+    });
 }
 
 fn draw_analysis_visualization(ui: &mut egui::Ui, app: &App, analysis: &StackupAnalysis, results: Option<&AnalysisResults>) {
