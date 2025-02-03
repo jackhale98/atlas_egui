@@ -7,63 +7,200 @@ use crate::analysis::stackup::{
     AnalysisMethod, MonteCarloResult, StackupAnalysis, AnalysisResults,
     StackupContribution, DistributionType, DistributionParams
 };
-use crate::ui::dialog::DialogState;
+use crate::analysis::MonteCarloSettings;
+use crate::ui::dialog::{DialogState, AnalysisEditData};
 use crate::config::Feature;
+use uuid::Uuid;
 
-pub fn draw_analysis_view(ui: &mut egui::Ui, app: &mut App, _dialog_state: &mut DialogState) {
-    let available_height = ui.available_height();
+pub fn draw_analysis_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut DialogState) {
+    let available_size = ui.available_size();
     
-    // Top panel for analysis list (40% height)
-    egui::TopBottomPanel::top("analysis_list_panel")
-        .exact_height(available_height * 0.4)
-        .show_inside(ui, |ui| {
-            draw_analysis_list(ui, app);
-        });
+    // Clone the selected analysis for immutable use
+    let selected_analysis = app.state.ui.analysis_list_state.selected()
+        .and_then(|idx| app.state.analysis.analyses.get(idx).cloned());
 
-    // Main panel for details/results/visualization
-    egui::CentralPanel::default().show_inside(ui, |ui| {
-        let selected_analysis = app.state.ui.analysis_list_state.selected()
-            .and_then(|idx| app.state.analysis.analyses.get(idx).cloned());
+    egui::Grid::new("analysis_grid")
+        .num_columns(2)
+        .spacing([8.0, 4.0])
+        .show(ui, |ui| {
+            // Left panel - Analysis List
+            ui.vertical(|ui| {
+                ui.set_min_width(available_size.x * 0.3);
+                ui.set_min_height(available_size.y);
+                
+                ui.heading("Analyses");
+                ui.add_space(4.0);
 
-        if let Some(analysis) = selected_analysis {
-            // Top tabs for switching views
-            egui::TopBottomPanel::top("analysis_tabs")
-                .min_height(0.0)
-                .show_inside(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        if ui.selectable_label(app.state.ui.analysis_tab == AnalysisTab::Details, "Details").clicked() {
-                            app.state.ui.analysis_tab = AnalysisTab::Details;
+                if ui.button("➕ Add Analysis").clicked() {
+                    *dialog_state = DialogState::AnalysisEdit(AnalysisEditData {
+                        name: String::new(),
+                        methods: vec![],
+                        monte_carlo_settings: MonteCarloSettings::default(),
+                        is_editing: false,
+                        analysis_index: None,
+                    });
+                }
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(8.0);
+
+                egui::ScrollArea::vertical()
+                    .id_source("analysis_list_scroll")
+                    .show(ui, |ui| {
+                        let mut delete_index = None;
+
+                        for (idx, analysis) in app.state.analysis.analyses.iter().enumerate() {
+                            let is_selected = app.state.ui.analysis_list_state.selected() == Some(idx);
+                            
+                            ui.group(|ui| {
+                                ui.set_width(ui.available_width());
+                                
+                                let methods_str = analysis.methods.iter()
+                                    .map(|m| format!("{:?}", m))
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                
+                                let response = ui.selectable_label(
+                                    is_selected,
+                                    format!(
+                                        "{}\nMethods: {}\nContributions: {}",
+                                        analysis.name,
+                                        methods_str,
+                                        analysis.contributions.len()
+                                    )
+                                );
+
+                                if response.clicked() {
+                                    app.state.ui.analysis_list_state.select(Some(idx));
+                                }
+
+                                response.context_menu(|ui| {
+                                    if ui.button("✏ Edit").clicked() {
+                                        *dialog_state = DialogState::AnalysisEdit(AnalysisEditData {
+                                            name: analysis.name.clone(),
+                                            methods: analysis.methods.clone(),
+                                            monte_carlo_settings: analysis.monte_carlo_settings.clone()
+                                                .unwrap_or_default(),
+                                            is_editing: true,
+                                            analysis_index: Some(idx),
+                                        });
+                                        ui.close_menu();
+                                    }
+
+                                    if ui.button("▶ Run Analysis").clicked() {
+                                        let results = analysis.run_analysis(&app.state.project.components);
+                                        app.state.analysis.latest_results.insert(analysis.id.clone(), results.clone());
+                                        // Save results to file system
+                                        if let Err(e) = app.state.file_manager.analysis_handler.save_analysis(
+                                            analysis,
+                                            &results
+                                        ) {
+                                            println!("Error saving analysis results: {}", e);
+                                        }
+                                        ui.close_menu();
+                                    }
+
+                                    ui.separator();
+
+                                    if ui.button(egui::RichText::new("🗑 Delete").color(egui::Color32::RED)).clicked() {
+                                        delete_index = Some(idx);
+                                        ui.close_menu();
+                                    }
+                                });
+
+                                // Show additional details when selected
+                                if is_selected {
+                                    ui.add_space(4.0);
+                                    
+                                    if let Some(results) = app.state.analysis.latest_results.get(&analysis.id) {
+                                        ui.label(format!("Last Run: {}", results.timestamp));
+                                        if let Some(mc) = &results.monte_carlo {
+                                            ui.label(format!(
+                                                "Mean: {:.3}, σ = {:.3}",
+                                                mc.mean,
+                                                mc.std_dev
+                                            ));
+                                        }
+                                    }
+                                }
+                            });
+                            ui.add_space(4.0);
                         }
-                        if ui.selectable_label(app.state.ui.analysis_tab == AnalysisTab::Results, "Results").clicked() {
-                            app.state.ui.analysis_tab = AnalysisTab::Results;
-                        }
-                        if ui.selectable_label(app.state.ui.analysis_tab == AnalysisTab::Visualization, "Visualization").clicked() {
-                            app.state.ui.analysis_tab = AnalysisTab::Visualization;
+
+                        if let Some(idx) = delete_index {
+                            app.state.analysis.analyses.remove(idx);
+                            if app.state.analysis.analyses.is_empty() {
+                                app.state.ui.analysis_list_state.select(None);
+                            } else if idx >= app.state.analysis.analyses.len() {
+                                app.state.ui.analysis_list_state.select(Some(app.state.analysis.analyses.len() - 1));
+                            }
+
+                            if let Err(e) = app.state.file_manager.save_project(
+                                &app.state.project.project_file,
+                                &app.state.project.components,
+                                &app.state.analysis.analyses,
+                            ) {
+                                println!("Error saving project after analysis deletion: {}", e);
+                            }
                         }
                     });
-                });
-
-            // Content based on selected tab
-            match app.state.ui.analysis_tab {
-                AnalysisTab::Details => draw_analysis_details(ui, app, &analysis),
-                AnalysisTab::Results => draw_analysis_results(ui, app, &analysis),
-                AnalysisTab::Visualization => draw_analysis_visualization(ui, app, &analysis),
-                _ => {}
-            }
-        } else {
-            ui.centered_and_justified(|ui| {
-                ui.label("Select an analysis to view details");
             });
-        }
-    });
+
+            // Right panel
+            ui.vertical(|ui| {
+                ui.set_min_width(available_size.x * 0.7);
+                ui.set_min_height(available_size.y);
+
+                if let Some(analysis) = &selected_analysis {
+                    // Analysis details header
+                    ui.heading(&analysis.name);
+                    ui.add_space(8.0);
+
+                    // Tabs
+                    ui.horizontal(|ui| {
+                        for (tab, label) in [
+                            (AnalysisTab::Details, "Details"),
+                            (AnalysisTab::Results, "Results"),
+                            (AnalysisTab::Visualization, "Visualization"),
+                        ] {
+                            if ui.selectable_label(app.state.ui.analysis_tab == tab, label).clicked() {
+                                app.state.ui.analysis_tab = tab;
+                            }
+                        }
+                    });
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+
+                    // Content based on selected tab
+                    match app.state.ui.analysis_tab {
+                        AnalysisTab::Details => draw_analysis_details(ui, app, analysis),
+                        AnalysisTab::Results => {
+                            let results = app.state.analysis.latest_results.get(&analysis.id);
+                            draw_analysis_results(ui, app, analysis, results);
+                        },
+                        AnalysisTab::Visualization => {
+                            let results = app.state.analysis.latest_results.get(&analysis.id);
+                            draw_analysis_visualization(ui, app, analysis, results);
+                        },
+                        _ => {}
+                    }
+                } else {
+                    ui.centered_and_justified(|ui| {
+                        ui.label("Select an analysis to view details");
+                    });
+                }
+            });
+        });
 
     // Handle dialogs
-    match app.state.ui.dialog_mode {
-        DialogMode::AddAnalysis | DialogMode::EditAnalysis => {
-            draw_analysis_dialog(ui.ctx(), app);
+    match dialog_state {
+        DialogState::AnalysisEdit(_) => {
+            draw_analysis_dialog(ui.ctx(), dialog_state, app);
         },
-        DialogMode::AddContribution | DialogMode::EditContribution => {
-            draw_contribution_dialog(ui.ctx(), app);
+        DialogState::ContributionEdit(_) => {
+            draw_contribution_dialog(ui.ctx(), dialog_state, app);
         },
         _ => {}
     }
@@ -282,7 +419,7 @@ fn draw_analysis_details(ui: &mut egui::Ui, app: &mut App, analysis: &StackupAna
     });
 }
 
-fn draw_analysis_results(ui: &mut egui::Ui, app: &App, analysis: &StackupAnalysis) {
+fn draw_analysis_results(ui: &mut egui::Ui, app: &App, analysis: &StackupAnalysis, results: Option<&AnalysisResults>) {
     if let Some(results) = app.state.analysis.latest_results.get(&analysis.id) {
         // Nominal value at top
         ui.group(|ui| {
@@ -425,7 +562,7 @@ fn draw_analysis_results(ui: &mut egui::Ui, app: &App, analysis: &StackupAnalysi
     }
 }
 
-fn draw_analysis_visualization(ui: &mut egui::Ui, app: &App, analysis: &StackupAnalysis) {
+fn draw_analysis_visualization(ui: &mut egui::Ui, app: &App, analysis: &StackupAnalysis, results: Option<&AnalysisResults>) {
     if let Some(results) = app.state.analysis.latest_results.get(&analysis.id) {
         if let Some(mc) = &results.monte_carlo {
             // Split screen into histogram and waterfall
@@ -573,129 +710,130 @@ fn draw_analysis_visualization(ui: &mut egui::Ui, app: &App, analysis: &StackupA
     }
 }
 
-fn draw_analysis_dialog(ctx: &egui::Context, app: &mut App) {
-    let title = match app.state.ui.dialog_mode {
-        DialogMode::AddAnalysis => "Add Analysis",
-        DialogMode::EditAnalysis => "Edit Analysis",
-        _ => return,
-    };
+fn draw_analysis_dialog(ctx: &egui::Context, dialog_state: &mut DialogState, app: &mut App) {
+    let mut should_close = false;
+    let mut should_save = false;
+    let mut updated_analysis = None;
 
-    let mut temp_analysis = if let DialogMode::EditAnalysis = app.state.ui.dialog_mode {
-        // If editing, get the existing analysis
-        if let Some(idx) = app.state.ui.analysis_list_state.selected() {
-            app.state.analysis.analyses.get(idx).cloned()
-                .unwrap_or_else(|| StackupAnalysis::new("New Analysis".to_string()))
-        } else {
-            StackupAnalysis::new("New Analysis".to_string())
-        }
-    } else {
-        // If adding new, create fresh analysis
-        StackupAnalysis::new("New Analysis".to_string())
-    };
+    if let DialogState::AnalysisEdit(data) = dialog_state {
+        let title = if data.is_editing { "Edit Analysis" } else { "New Analysis" };
+        
+        egui::Window::new(title)
+            .fixed_size([400.0, 500.0])
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    // Name input
+                    ui.group(|ui| {
+                        ui.heading("Analysis Name");
+                        ui.text_edit_singleline(&mut data.name);
+                    });
 
-    egui::Window::new(title)
-        .fixed_size([400.0, 500.0])
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .resizable(false)
-        .show(ctx, |ui| {
-            let mut should_close = false;
-            let mut should_save = false;
+                    ui.add_space(8.0);
 
-            ui.vertical(|ui| {
-                // Name input
-                ui.group(|ui| {
-                    ui.heading("Analysis Name");
-                    ui.text_edit_singleline(&mut temp_analysis.name);
-                });
-
-                ui.add_space(8.0);
-
-                // Methods selection
-                ui.group(|ui| {
-                    ui.heading("Analysis Methods");
-                    for method in &[AnalysisMethod::WorstCase, AnalysisMethod::Rss, AnalysisMethod::MonteCarlo] {
-                        let mut enabled = temp_analysis.methods.contains(method);
-                        if ui.checkbox(&mut enabled, format!("{:?}", method)).changed() {
-                            if enabled {
-                                temp_analysis.methods.push(*method);
-                            } else {
-                                temp_analysis.methods.retain(|m| m != method);
+                    // Methods selection
+                    ui.group(|ui| {
+                        ui.heading("Analysis Methods");
+                        for method in &[AnalysisMethod::WorstCase, AnalysisMethod::Rss, AnalysisMethod::MonteCarlo] {
+                            let mut enabled = data.methods.contains(method);
+                            if ui.checkbox(&mut enabled, format!("{:?}", method)).changed() {
+                                if enabled {
+                                    data.methods.push(*method);
+                                } else {
+                                    data.methods.retain(|m| m != method);
+                                }
                             }
                         }
-                    }
-                });
-
-                ui.add_space(8.0);
-
-                // Monte Carlo settings
-                if temp_analysis.methods.contains(&AnalysisMethod::MonteCarlo) {
-                    ui.group(|ui| {
-                        ui.heading("Monte Carlo Settings");
-                        let settings = temp_analysis.monte_carlo_settings.get_or_insert_with(Default::default);
-                        
-                        ui.horizontal(|ui| {
-                            ui.label("Iterations:");
-                            let mut iter_str = settings.iterations.to_string();
-                            if ui.text_edit_singleline(&mut iter_str).changed() {
-                                if let Ok(value) = iter_str.parse() {
-                                    settings.iterations = value;
-                                }
-                            }
-                        });
-
-                        ui.horizontal(|ui| {
-                            ui.label("Confidence (%):");
-                            let mut conf_str = (settings.confidence * 100.0).to_string();
-                            if ui.text_edit_singleline(&mut conf_str).changed() {
-                                if let Ok(value) = conf_str.parse::<f64>() {
-                                    settings.confidence = (value / 100.0).clamp(0.0, 0.9999);
-                                }
-                            }
-                        });
                     });
-                }
 
-                // Action buttons
-                ui.add_space(16.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Cancel").clicked() {
-                        should_close = true;
+                    // Monte Carlo settings if enabled
+                    if data.methods.contains(&AnalysisMethod::MonteCarlo) {
+                        ui.add_space(8.0);
+                        ui.group(|ui| {
+                            ui.heading("Monte Carlo Settings");
+                            
+                            ui.horizontal(|ui| {
+                                ui.label("Iterations:");
+                                let mut iter_str = data.monte_carlo_settings.iterations.to_string();
+                                if ui.text_edit_singleline(&mut iter_str).changed() {
+                                    if let Ok(value) = iter_str.parse() {
+                                        data.monte_carlo_settings.iterations = value;
+                                    }
+                                }
+                            });
+
+                            ui.horizontal(|ui| {
+                                ui.label("Confidence (%):");
+                                let mut conf_str = (data.monte_carlo_settings.confidence * 100.0).to_string();
+                                if ui.text_edit_singleline(&mut conf_str).changed() {
+                                    if let Ok(value) = conf_str.parse::<f64>() {
+                                        data.monte_carlo_settings.confidence = (value / 100.0).clamp(0.0, 0.9999);
+                                    }
+                                }
+                            });
+                        });
                     }
 
-                    let name_valid = !temp_analysis.name.trim().is_empty();
-                    let methods_valid = !temp_analysis.methods.is_empty();
-                    
-                    if ui.add_enabled(
-                        name_valid && methods_valid,
-                        egui::Button::new("Save")
-                    ).clicked() {
-                        should_save = true;
-                        should_close = true;
-                    }
+                    // Action buttons
+                    ui.add_space(16.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            should_close = true;
+                        }
+
+                        let can_save = !data.name.trim().is_empty() && !data.methods.is_empty();
+                        if ui.add_enabled(can_save, egui::Button::new("Save")).clicked() {
+                            should_save = true;
+                            should_close = true;
+                            updated_analysis = Some((StackupAnalysis {
+                                id: Uuid::new_v4().to_string(),
+                                name: data.name.clone(),
+                                methods: data.methods.clone(),
+                                monte_carlo_settings: if data.methods.contains(&AnalysisMethod::MonteCarlo) {
+                                    Some(data.monte_carlo_settings.clone())
+                                } else {
+                                    None
+                                },
+                                contributions: vec![],
+                            }, data.is_editing, data.analysis_index));
+                        }
+                    });
                 });
             });
+    }
 
-            if should_save {
-                match app.state.ui.dialog_mode {
-                    DialogMode::AddAnalysis => {
-                        app.state.analysis.analyses.push(temp_analysis);
-                        let idx = app.state.analysis.analyses.len() - 1;
-                        app.state.ui.analysis_list_state.select(Some(idx));
-                    },
-                    DialogMode::EditAnalysis => {
-                        if let Some(idx) = app.state.ui.analysis_list_state.selected() {
-                            if let Some(existing) = app.state.analysis.analyses.get_mut(idx) {
-                                *existing = temp_analysis;
-                            }
-                        }
-                    },
-                    _ => {}
+    // Handle state changes outside the closure
+    if should_save {
+        if let Some((new_analysis, is_editing, idx)) = updated_analysis {
+            if is_editing {
+                if let Some(idx) = idx {
+                    if let Some(analysis) = app.state.analysis.analyses.get_mut(idx) {
+                        // Preserve existing contributions
+                        let contributions = analysis.contributions.clone();
+                        *analysis = new_analysis;
+                        analysis.contributions = contributions;
+                    }
                 }
+            } else {
+                app.state.analysis.analyses.push(new_analysis);
+                app.state.ui.analysis_list_state.select(Some(app.state.analysis.analyses.len() - 1));
             }
-            if should_close {
-                app.state.ui.dialog_mode = DialogMode::None;
+
+            // Save to filesystem
+            if let Err(e) = app.state.file_manager.save_project(
+                &app.state.project.project_file,
+                &app.state.project.components,
+                &app.state.analysis.analyses,
+            ) {
+                println!("Error saving analysis: {}", e);
             }
-        });
+        }
+    }
+
+    if should_close {
+        *dialog_state = DialogState::None;
+    }
 }
 
 #[derive(Default)]
@@ -706,175 +844,157 @@ struct ContributionDialogState {
     half_count: bool,
 }
 
-fn draw_contribution_dialog(ctx: &egui::Context, app: &mut App) {
-    if !matches!(app.state.ui.dialog_mode, DialogMode::AddContribution | DialogMode::EditContribution) {
-        return;
+fn draw_contribution_dialog(ctx: &egui::Context, dialog_state: &mut DialogState, app: &mut App) {
+    let mut should_close = false;
+    let mut should_save = false;
+    let mut updated_contribution = None;
+
+    if let DialogState::ContributionEdit(data) = dialog_state {
+        let title = if data.is_editing { "Edit Contribution" } else { "Add Contribution" };
+
+        egui::Window::new(title)
+            .fixed_size([400.0, 500.0])
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    // Component selection
+                    ui.group(|ui| {
+                        ui.heading("Component");
+                        egui::ComboBox::from_label("Select Component")
+                            .selected_text(&data.component_id)
+                            .show_ui(ui, |ui| {
+                                for component in &app.state.project.components {
+                                    if ui.selectable_value(
+                                        &mut data.component_id,
+                                        component.name.clone(),
+                                        &component.name
+                                    ).clicked() {
+                                        data.feature_id.clear();
+                                    }
+                                }
+                            });
+                    });
+
+                    // Feature selection
+                    if !data.component_id.is_empty() {
+                        ui.add_space(8.0);
+                        ui.group(|ui| {
+                            ui.heading("Feature");
+                            if let Some(component) = app.state.project.components.iter()
+                                .find(|c| c.name == data.component_id) 
+                            {
+                                egui::ComboBox::from_label("Select Feature")
+                                    .selected_text(&data.feature_id)
+                                    .show_ui(ui, |ui| {
+                                        for feature in &component.features {
+                                            ui.selectable_value(
+                                                &mut data.feature_id,
+                                                feature.name.clone(),
+                                                format!("{} ({:?})", feature.name, feature.feature_type)
+                                            );
+                                        }
+                                    });
+
+                                // Show feature details if selected
+                                if let Some(feature) = component.features.iter()
+                                    .find(|f| f.name == data.feature_id)
+                                {
+                                    ui.add_space(4.0);
+                                    ui.label(format!(
+                                        "Value: {:.3} [{:+.3}/{:+.3}]",
+                                        feature.dimension.value,
+                                        feature.dimension.plus_tolerance,
+                                        feature.dimension.minus_tolerance
+                                    ));
+                                    if let Some(dist) = &feature.distribution {
+                                        ui.label(format!("Distribution: {:?}", dist));
+                                    }
+                                }
+                            }
+                        });
+                    }
+
+                    // Direction and half count
+                    ui.add_space(8.0);
+                    ui.group(|ui| {
+                        ui.heading("Properties");
+                        
+                        ui.horizontal(|ui| {
+                            ui.label("Direction:");
+                            if ui.radio_value(&mut data.direction, 1.0, "Positive").clicked() ||
+                               ui.radio_value(&mut data.direction, -1.0, "Negative").clicked() {
+                                // Direction updated via radio buttons
+                            }
+                        });
+
+                        ui.checkbox(&mut data.half_count, "Half Count");
+                    });
+
+                    // Action buttons
+                    ui.add_space(16.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            should_close = true;
+                        }
+
+                        let can_save = !data.component_id.is_empty() 
+                            && !data.feature_id.is_empty();
+                        
+                        if ui.add_enabled(can_save, egui::Button::new("Save")).clicked() {
+                            should_save = true;
+                            should_close = true;
+                            if let Some(feature) = find_feature(app, &data.component_id, &data.feature_id) {
+                                updated_contribution = Some((
+                                    StackupContribution {
+                                        component_id: data.component_id.clone(),
+                                        feature_id: data.feature_id.clone(),
+                                        direction: data.direction,
+                                        half_count: data.half_count,
+                                        distribution: Some(StackupAnalysis::calculate_distribution_params(feature)),
+                                    },
+                                    data.analysis_index,
+                                    data.contribution_index,
+                                    data.is_editing
+                                ));
+                            }
+                        }
+                    });
+                });
+            });
     }
 
-    let title = match app.state.ui.dialog_mode {
-        DialogMode::AddContribution => "Add Contribution",
-        DialogMode::EditContribution => "Edit Contribution",
-        _ => return,
-    };
+    // Handle state changes outside the closure
+    if should_save {
+        if let Some((contribution, analysis_idx, contrib_idx, is_editing)) = updated_contribution {
+            if let Some(idx) = analysis_idx {
+                if let Some(analysis) = app.state.analysis.analyses.get_mut(idx) {
+                    if is_editing {
+                        if let Some(contrib_idx) = contrib_idx {
+                            if let Some(existing) = analysis.contributions.get_mut(contrib_idx) {
+                                *existing = contribution;
+                            }
+                        }
+                    } else {
+                        analysis.contributions.push(contribution);
+                    }
 
-    let mut dialog_state = ContributionDialogState {
-        direction: 1.0,
-        ..Default::default()
-    };
-
-    // If editing, populate with existing data
-    if let DialogMode::EditContribution = app.state.ui.dialog_mode {
-        if let Some(selected_analysis) = app.state.ui.analysis_list_state.selected()
-            .and_then(|idx| app.state.analysis.analyses.get(idx)) 
-        {
-            if let Some(selected_contribution) = app.state.ui.contribution_list_state.selected()
-                .and_then(|idx| selected_analysis.contributions.get(idx)) 
-            {
-                dialog_state = ContributionDialogState {
-                    component: selected_contribution.component_id.clone(),
-                    feature: selected_contribution.feature_id.clone(),
-                    direction: selected_contribution.direction,
-                    half_count: selected_contribution.half_count,
-                };
+                    // Save to filesystem
+                    if let Err(e) = app.state.file_manager.save_project(
+                        &app.state.project.project_file,
+                        &app.state.project.components,
+                        &app.state.analysis.analyses,
+                    ) {
+                        println!("Error saving contribution: {}", e);
+                    }
+                }
             }
         }
     }
 
-    egui::Window::new(title)
-        .fixed_size([400.0, 500.0])
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .resizable(false)
-        .show(ctx, |ui| {
-            let mut should_close = false;
-            let mut should_save = false;
-
-            ui.vertical(|ui| {
-                // Component selection
-                ui.group(|ui| {
-                    ui.heading("Component");
-                    egui::ComboBox::from_label("Select Component")
-                        .selected_text(&dialog_state.component)
-                        .show_ui(ui, |ui| {
-                            for component in &app.state.project.components {
-                                ui.selectable_value(
-                                    &mut dialog_state.component,
-                                    component.name.clone(),
-                                    &component.name
-                                );
-                            }
-                        });
-                });
-
-                // Feature selection (only if component is selected)
-                if !dialog_state.component.is_empty() {
-                    ui.add_space(8.0);
-                    ui.group(|ui| {
-                        ui.heading("Feature");
-                        if let Some(component) = app.state.project.components.iter()
-                            .find(|c| c.name == dialog_state.component) 
-                        {
-                            egui::ComboBox::from_label("Select Feature")
-                                .selected_text(&dialog_state.feature)
-                                .show_ui(ui, |ui| {
-                                    for feature in &component.features {
-                                        ui.selectable_value(
-                                            &mut dialog_state.feature,
-                                            feature.name.clone(),
-                                            format!("{} ({:?})", feature.name, feature.feature_type)
-                                        );
-                                    }
-                                });
-
-                            // Show feature details if selected
-                            if let Some(feature) = component.features.iter()
-                                .find(|f| f.name == dialog_state.feature)
-                            {
-                                ui.add_space(4.0);
-                                ui.label(format!(
-                                    "Value: {:.3} [{:+.3}/{:+.3}]",
-                                    feature.dimension.value,
-                                    feature.dimension.plus_tolerance,
-                                    feature.dimension.minus_tolerance
-                                ));
-                                if let Some(dist) = &feature.distribution {
-                                    ui.label(format!("Distribution: {:?}", dist));
-                                }
-                            }
-                        }
-                    });
-                }
-
-                // Direction and half count
-                ui.add_space(8.0);
-                ui.group(|ui| {
-                    ui.heading("Properties");
-                    
-                    ui.horizontal(|ui| {
-                        ui.label("Direction:");
-                        let mut is_positive = dialog_state.direction > 0.0;
-                        if ui.radio_value(&mut is_positive, true, "Positive").clicked() ||
-                           ui.radio_value(&mut is_positive, false, "Negative").clicked() {
-                            dialog_state.direction = if is_positive { 1.0 } else { -1.0 };
-                        }
-                    });
-
-                    ui.checkbox(&mut dialog_state.half_count, "Half Count");
-                });
-
-                // Action buttons
-                ui.add_space(16.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Cancel").clicked() {
-                        should_close = true;
-                    }
-
-                    let can_save = !dialog_state.component.is_empty() 
-                        && !dialog_state.feature.is_empty();
-                    
-                    if ui.add_enabled(can_save, egui::Button::new("Save")).clicked() {
-                        should_save = true;
-                        should_close = true;
-                    }
-                });
-            });
-
-            if should_save {
-                // Get the feature for distribution parameters
-                if let Some(feature) = find_feature(app, &dialog_state.component, &dialog_state.feature) {
-                    let contribution = StackupContribution {
-                        component_id: dialog_state.component.clone(),
-                        feature_id: dialog_state.feature.clone(),
-                        direction: dialog_state.direction,
-                        half_count: dialog_state.half_count,
-                        distribution: feature.distribution.map(|_| 
-                            StackupAnalysis::calculate_distribution_params(feature)
-                        ),
-                    };
-
-                    if let Some(selected) = app.state.ui.analysis_list_state.selected() {
-                        if let Some(analysis) = app.state.analysis.analyses.get_mut(selected) {
-                            match app.state.ui.dialog_mode {
-                                DialogMode::AddContribution => {
-                                    analysis.contributions.push(contribution);
-                                },
-                                DialogMode::EditContribution => {
-                                    if let Some(contribution_idx) = app.state.ui.contribution_list_state.selected() {
-                                        if contribution_idx < analysis.contributions.len() {
-                                            analysis.contributions[contribution_idx] = contribution;
-                                        }
-                                    }
-                                },
-                                _ => {},
-                            }
-                        }
-                    }
-                }
-            }
-
-            if should_close {
-                app.state.ui.dialog_mode = DialogMode::None;
-            }
-        });
+    if should_close {
+        *dialog_state = DialogState::None;
+    }
 }
 
 
