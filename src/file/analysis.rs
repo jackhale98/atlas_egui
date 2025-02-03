@@ -253,5 +253,8 @@ impl AnalysisFileManager {
 
         Ok((analysis, latest_results))
     }
+    pub fn get_results_file_path(&self, relative_path: &str) -> PathBuf {
+        self.base_path.join(relative_path)
+    }
 }
 

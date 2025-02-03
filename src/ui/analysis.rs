@@ -177,8 +177,11 @@ pub fn draw_analysis_view(ui: &mut egui::Ui, app: &mut App, dialog_state: &mut D
                     match app.state.ui.analysis_tab {
                         AnalysisTab::Details => draw_analysis_details(ui, app, analysis, dialog_state),
                         AnalysisTab::Results => {
-                            let results = app.state.analysis.latest_results.get(&analysis.id);
-                            draw_analysis_results(ui, app, analysis, results);
+                            if let Some(results) = app.state.analysis.latest_results.get(&analysis.id).cloned() {
+                                draw_analysis_results(ui, app, analysis, Some(&results));
+                            } else {
+                                draw_analysis_results(ui, app, analysis, None);
+                            }
                         },
                         AnalysisTab::Visualization => {
                             let results = app.state.analysis.latest_results.get(&analysis.id);
@@ -446,147 +449,131 @@ fn draw_analysis_details(ui: &mut egui::Ui, app: &mut App, analysis: &StackupAna
     });
 }
 
-fn draw_analysis_results(ui: &mut egui::Ui, app: &App, analysis: &StackupAnalysis, results: Option<&AnalysisResults>) {
-    if let Some(results) = app.state.analysis.latest_results.get(&analysis.id) {
-        // Nominal value at top
-        ui.group(|ui| {
-            ui.heading("Nominal Value");
-            ui.label(format!("{:.6}", results.nominal));
-        });
-
-        ui.add_space(8.0);
-
-        egui::Grid::new("results_grid")
-            .num_columns(2)
-            .spacing([20.0, 8.0])
-            .min_col_width(ui.available_width() / 2.0)
-            .show(ui, |ui| {
-                // Worst Case Results
-                if let Some(wc) = &results.worst_case {
-                    ui.vertical(|ui| {
+fn draw_analysis_results(ui: &mut egui::Ui, app: &mut App, analysis: &StackupAnalysis, results: Option<&AnalysisResults>) {
+    // Split screen into results and history
+    egui::Grid::new("results_grid")
+        .num_columns(2)
+        .spacing([20.0, 4.0])
+        .show(ui, |ui| {
+            // Left side - Latest results
+            ui.vertical(|ui| {
+                ui.set_min_width(ui.available_width() * 0.7);
+                
+                if let Some(results) = app.state.analysis.latest_results.get(&analysis.id) {
+                    ui.group(|ui| {
+                        ui.heading("Latest Results");
+                        ui.add_space(8.0);
+                        
+                        // Nominal value
                         ui.group(|ui| {
-                            ui.heading("Worst Case Analysis");
-                            ui.horizontal(|ui| {
-                                ui.vertical(|ui| {
-                                    ui.label("Minimum:");
-                                    ui.label("Maximum:");
-                                    ui.label("Range:");
-                                });
-                                ui.vertical(|ui| {
-                                    ui.label(format!("{:.6}", wc.min));
-                                    ui.label(format!("{:.6}", wc.max));
-                                    ui.label(format!("{:.6}", wc.max - wc.min));
-                                });
-                            });
-
-                            if !wc.sensitivity.is_empty() {
-                                ui.add_space(8.0);
-                                ui.label("Top Contributors:");
-                                for sens in wc.sensitivity.iter().take(3) {
-                                    ui.label(format!(
-                                        "{}.{}: {:.1}%",
-                                        sens.component_id,
-                                        sens.feature_id,
-                                        sens.contribution_percent
-                                    ));
-                                }
-                            }
+                            ui.heading("Nominal Value");
+                            ui.strong(format!("{:.6}", results.nominal));
                         });
+
+                        // Show results in columns for better space utilization
+                        egui::Grid::new("analysis_results")
+                            .num_columns(2)
+                            .spacing([40.0, 8.0])
+                            .show(ui, |ui| {
+                                if let Some(wc) = &results.worst_case {
+                                    ui.vertical(|ui| {
+                                        ui.group(|ui| {
+                                            ui.heading("Worst Case");
+                                            ui.label(format!("Min: {:.6}", wc.min));
+                                            ui.label(format!("Max: {:.6}", wc.max));
+                                            ui.label(format!("Range: {:.6}", wc.max - wc.min));
+                                        });
+                                    });
+
+                                    if let Some(rss) = &results.rss {
+                                        ui.vertical(|ui| {
+                                            ui.group(|ui| {
+                                                ui.heading("RSS Analysis");
+                                                ui.label(format!("Mean: {:.6}", results.nominal));
+                                                ui.label(format!("Std Dev: {:.6}", rss.std_dev));
+                                                ui.label(format!("3σ Range: [{:.6}, {:.6}]", rss.min, rss.max));
+                                            });
+                                        });
+                                        ui.end_row();
+                                    }
+                                }
+
+                                if let Some(mc) = &results.monte_carlo {
+                                    ui.vertical(|ui| {
+                                        ui.group(|ui| {
+                                            ui.heading("Monte Carlo");
+                                            ui.label(format!("Mean: {:.6}", mc.mean));
+                                            ui.label(format!("Std Dev: {:.6}", mc.std_dev));
+                                            ui.label(format!("Range: [{:.6}, {:.6}]", mc.min, mc.max));
+                                            
+                                            // Add confidence intervals
+                                            ui.add_space(8.0);
+                                            ui.label("Confidence Intervals:");
+                                            for interval in &mc.confidence_intervals {
+                                                ui.label(format!(
+                                                    "{:.1}%: [{:.6}, {:.6}]",
+                                                    interval.confidence_level * 100.0,
+                                                    interval.lower_bound,
+                                                    interval.upper_bound
+                                                ));
+                                            }
+                                        });
+                                    });
+                                }
+                            });
                     });
-
-                    // RSS Results
-                    if let Some(rss) = &results.rss {
-                        ui.vertical(|ui| {
-                            ui.group(|ui| {
-                                ui.heading("RSS Analysis");
-                                ui.horizontal(|ui| {
-                                    ui.vertical(|ui| {
-                                        ui.label("Mean:");
-                                        ui.label("Std Dev:");
-                                        ui.label("3σ Range:");
-                                    });
-                                    ui.vertical(|ui| {
-                                        ui.label(format!("{:.6}", results.nominal));
-                                        ui.label(format!("{:.6}", rss.std_dev));
-                                        ui.label(format!("[{:.6}, {:.6}]", rss.min, rss.max));
-                                    });
-                                });
-
-                                // Show sensitivities
-                                if !rss.sensitivity.is_empty() {
-                                    ui.add_space(8.0);
-                                    ui.label("Top Contributors:");
-                                    for sens in rss.sensitivity.iter().take(3) {
-                                        ui.label(format!(
-                                            "{}.{}: {:.1}%",
-                                            sens.component_id,
-                                            sens.feature_id,
-                                            sens.contribution_percent
-                                        ));
-                                    }
-                                }
-                            });
-                        });
-                    }
-                    ui.end_row();
-
-                    // Monte Carlo Results
-                    if let Some(mc) = &results.monte_carlo {
-                        ui.vertical(|ui| {
-                            ui.group(|ui| {
-                                ui.heading("Monte Carlo Analysis");
-                                ui.horizontal(|ui| {
-                                    ui.vertical(|ui| {
-                                        ui.label("Mean:");
-                                        ui.label("Std Dev:");
-                                        ui.label("Range:");
-                                    });
-                                    ui.vertical(|ui| {
-                                        ui.label(format!("{:.6}", mc.mean));
-                                        ui.label(format!("{:.6}", mc.std_dev));
-                                        ui.label(format!("[{:.6}, {:.6}]", mc.min, mc.max));
-                                    });
-                                });
-
-                                // Confidence Intervals
-                                if !mc.confidence_intervals.is_empty() {
-                                    ui.add_space(8.0);
-                                    ui.label("Confidence Intervals:");
-                                    for interval in &mc.confidence_intervals {
-                                        ui.label(format!(
-                                            "{:.1}%: [{:.6}, {:.6}]",
-                                            interval.confidence_level * 100.0,
-                                            interval.lower_bound,
-                                            interval.upper_bound
-                                        ));
-                                    }
-                                }
-
-                                // Show sensitivities
-                                if !mc.sensitivity.is_empty() {
-                                    ui.add_space(8.0);
-                                    ui.label("Top Contributors:");
-                                    for sens in mc.sensitivity.iter().take(3) {
-                                        ui.label(format!(
-                                            "{}.{}: {:.1}% (corr: {:.3})",
-                                            sens.component_id,
-                                            sens.feature_id,
-                                            sens.contribution_percent,
-                                            sens.correlation.unwrap_or(0.0)
-                                        ));
-                                    }
-                                }
-                            });
-                        });
-                    }
+                } else {
+                    ui.centered_and_justified(|ui| {
+                        ui.label("Run analysis to see results");
+                    });
                 }
             });
-    } else {
-        ui.centered_and_justified(|ui| {
-            ui.add_space(20.0);
-            ui.label("Run analysis to see results");
+
+            // Right side - History viewer
+            ui.vertical(|ui| {
+                ui.set_min_width(ui.available_width() * 0.3);
+                ui.group(|ui| {
+                    ui.heading("Analysis History");
+                    
+                    // Get metadata for this analysis
+                    if let Ok(metadata) = app.state.file_manager.analysis_handler.load_metadata(&analysis.id) {
+                        egui::ScrollArea::vertical()
+                            .max_height(ui.available_height() - 40.0)
+                            .show(ui, |ui| {
+                                for results_file in metadata.results_files.iter().rev() {
+                                    ui.group(|ui| {
+                                        let timestamp = results_file.timestamp
+                                            .format("%Y-%m-%d %H:%M:%S")
+                                            .to_string();
+                                        
+                                        let methods = results_file.analysis_methods.iter()
+                                            .map(|m| format!("{:?}", m))
+                                            .collect::<Vec<_>>()
+                                            .join(", ");
+
+                                        ui.label(format!("Run: {}", timestamp));
+                                        ui.label(format!("Methods: {}", methods));
+
+                                        // Add button to load these results
+                                        if ui.button("View Results").clicked() {
+                                            // Load and display historical results
+                                            if let Ok(content) = std::fs::read_to_string(
+                                                app.state.file_manager.analysis_handler.get_results_file_path(&results_file.path)
+                                            ) {
+                                                if let Ok(historical_results) = ron::from_str(&content) {
+                                                    app.state.analysis.latest_results
+                                                        .insert(analysis.id.clone(), historical_results);
+                                                }
+                                            }
+                                        }
+                                    });
+                                    ui.add_space(4.0);
+                                }
+                            });
+                    }
+                });
+            });
         });
-    }
 }
 
 fn draw_analysis_visualization(ui: &mut egui::Ui, app: &App, analysis: &StackupAnalysis, results: Option<&AnalysisResults>) {
