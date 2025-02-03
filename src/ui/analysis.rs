@@ -418,6 +418,25 @@ fn draw_analysis_details(ui: &mut egui::Ui, app: &mut App, analysis: &StackupAna
                                         );
                                     }
                                 });
+
+                                // Add delete button on the right
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.button("🗑").clicked() {
+                                        if let Some(analysis_idx) = app.state.ui.analysis_list_state.selected() {
+                                            if let Some(analysis) = app.state.analysis.analyses.get_mut(analysis_idx) {
+                                                analysis.contributions.remove(idx);
+                                                // Save changes
+                                                if let Err(e) = app.state.file_manager.save_project(
+                                                    &app.state.project.project_file,
+                                                    &app.state.project.components,
+                                                    &app.state.analysis.analyses,
+                                                ) {
+                                                    println!("Error saving after contribution deletion: {}", e);
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
                             });
                         });
                         ui.add_space(4.0);
