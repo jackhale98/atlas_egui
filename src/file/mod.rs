@@ -8,9 +8,6 @@ use crate::config::project::AnalysisReference;
 use crate::analysis::stackup::{StackupAnalysis, AnalysisResults};
 use crate::config::ComponentReference;
 
-// Add this import for Path Component handling
-use std::path::Component as PathComponent;  // <-- Add this line
-
 pub mod project;
 pub mod component;
 pub mod mates;

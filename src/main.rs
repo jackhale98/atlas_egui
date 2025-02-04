@@ -6,11 +6,11 @@ mod analysis;
 mod app;
 mod config;
 mod file;
-mod input;
 mod state;
 mod ui;
+mod utils;
 
-use app::{App, AtlasApp};
+use app::AtlasApp;
 
 fn main() -> Result<()> {
     let options = eframe::NativeOptions {

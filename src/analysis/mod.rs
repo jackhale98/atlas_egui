@@ -6,9 +6,5 @@ pub use stackup::{
     AnalysisMethod,
     StackupAnalysis,
     AnalysisResults,
-    MonteCarloSettings,
     MonteCarloResult,
-    StackupContribution,
-    DistributionType,
-    DistributionParams
 };

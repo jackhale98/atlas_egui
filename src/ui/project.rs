@@ -1,11 +1,15 @@
 // src/ui/project.rs
 use eframe::egui;
-use crate::app::App;
 use crate::config::Units;
 use chrono::prelude::*;
+use crate::state::AppState;
 
-pub fn draw_project_view(ui: &mut egui::Ui, app: &mut App) {
-    let state = &mut app.state;
+pub fn show_project_view(ui: &mut egui::Ui, state: &mut AppState) {
+    let total_components = state.components.len();
+    let total_features: usize = state.components
+        .iter()
+        .map(|c| c.features.len())
+        .sum();
     
     // Project Details Section
     ui.group(|ui| {
@@ -18,7 +22,7 @@ pub fn draw_project_view(ui: &mut egui::Ui, app: &mut App) {
             ui.label("Name:");
             ui.add_sized(
                 [ui.available_width(), 20.0],
-                egui::TextEdit::singleline(&mut state.project.project_file.name)
+                egui::TextEdit::singleline(&mut state.project_file.name)
                     .hint_text("Enter project name")
             );
         });
@@ -26,7 +30,7 @@ pub fn draw_project_view(ui: &mut egui::Ui, app: &mut App) {
         // Description with edit
         ui.horizontal(|ui| {
             ui.label("Description:");
-            let desc = state.project.project_file.description.get_or_insert_with(String::new);
+            let desc = state.project_file.description.get_or_insert_with(String::new);
             ui.add_sized(
                 [ui.available_width(), 60.0],
                 egui::TextEdit::multiline(desc)
@@ -38,12 +42,12 @@ pub fn draw_project_view(ui: &mut egui::Ui, app: &mut App) {
         ui.horizontal(|ui| {
             ui.label("Units:");
             ui.radio_value(
-                &mut state.project.project_file.units,
+                &mut state.project_file.units,
                 Units::Metric,
                 "Metric (mm)"
             );
             ui.radio_value(
-                &mut state.project.project_file.units,
+                &mut state.project_file.units,
                 Units::Imperial,
                 "Imperial (in)"
             );
@@ -53,7 +57,7 @@ pub fn draw_project_view(ui: &mut egui::Ui, app: &mut App) {
     ui.add_space(16.0);
 
     // Project location (read-only)
-    if let Some(dir) = &state.project.project_dir {
+    if let Some(dir) = &state.project_dir {
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.label("Project Directory:");
@@ -73,8 +77,8 @@ pub fn draw_project_view(ui: &mut egui::Ui, app: &mut App) {
                 ui.heading("Components");
                 ui.add_space(8.0);
                 
-                let total_components = state.project.components.len();
-                let total_features: usize = state.project.components
+                let total_components = state.components.len();
+                let total_features: usize = state.components
                     .iter()
                     .map(|c| c.features.len())
                     .sum();
@@ -91,7 +95,7 @@ pub fn draw_project_view(ui: &mut egui::Ui, app: &mut App) {
                 if total_components > 0 {
                     ui.add_space(8.0);
                     ui.label("Recent Components:");
-                    for component in state.project.components.iter().take(3) {
+                    for component in state.components.iter().take(3) {
                         ui.label(format!("• {} ({} features)", 
                             component.name, 
                             component.features.len()));
@@ -107,8 +111,8 @@ pub fn draw_project_view(ui: &mut egui::Ui, app: &mut App) {
                 ui.heading("Mates");
                 ui.add_space(8.0);
                 
-                let total_mates = state.mates.mates.len();
-                let valid_mates = state.mates.mates.iter()
+                let total_mates = state.mates.len();
+                let valid_mates = state.mates.iter()
                     .filter(|mate| {
                         if let (Some(feat_a), Some(feat_b)) = (
                             find_feature(state, &mate.component_a, &mate.feature_a),
@@ -152,8 +156,8 @@ pub fn draw_project_view(ui: &mut egui::Ui, app: &mut App) {
         ui.horizontal(|ui| {
             // Analysis Statistics
             ui.vertical(|ui| {
-                let total_analyses = state.analysis.analyses.len();
-                let total_monte_carlo: usize = state.analysis.analyses.iter()
+                let total_analyses = state.analyses.len();
+                let total_monte_carlo: usize = state.analyses.iter()
                     .filter_map(|analysis| analysis.monte_carlo_settings.as_ref())
                     .map(|settings| settings.iterations)
                     .sum();
@@ -169,7 +173,7 @@ pub fn draw_project_view(ui: &mut egui::Ui, app: &mut App) {
 
             // Latest Results
             ui.vertical(|ui| {
-                let latest_result = state.analysis.latest_results.values()
+                let latest_result = state.latest_results.values()
                     .max_by_key(|r| DateTime::parse_from_rfc3339(&r.timestamp).ok());
                 
                 if let Some(result) = latest_result {
@@ -207,7 +211,7 @@ fn find_feature<'a>(
     component_name: &str,
     feature_name: &str,
 ) -> Option<&'a crate::config::Feature> {
-    state.project.components
+    state.components
         .iter()
         .find(|c| c.name == component_name)?
         .features

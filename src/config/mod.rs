@@ -8,4 +8,4 @@ pub mod mate;
 pub use project::{ProjectFile, Units};
 pub use component::{Component, ComponentReference};
 pub use feature::{Feature, FeatureType, Dimension};
-pub use mate::{Mate, FitType};
+pub use mate::Mate;
