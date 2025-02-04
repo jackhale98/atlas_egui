@@ -6,62 +6,75 @@ use crate::analysis::stackup::{AnalysisMethod, MonteCarloSettings, StackupAnalys
 use crate::config::{Component, Feature};
 use crate::utils::find_feature;
 
-// src/ui/analysis.rs
 pub fn show_analysis_view(ui: &mut egui::Ui, state: &mut AppState) {
     let available_size = ui.available_size();
 
-    egui::Grid::new("analysis_grid")
-        .num_columns(2)
-        .spacing([8.0, 4.0])
-        .show(ui, |ui| {
-            // Left panel - Analysis List
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 10.0;
+        
+        let current_tab = state.analysis_tab;
+        let tabs = [
+            (AnalysisTab::List, "List"),
+            (AnalysisTab::Details, "Details"),
+            (AnalysisTab::Results, "Results"),
+            (AnalysisTab::Visualization, "Visualization"),
+        ];
+
+        for (tab, label) in tabs {
+            if ui.selectable_label(current_tab == tab, label).clicked() {
+                state.analysis_tab = tab;
+            }
+        }
+    });
+
+    ui.add_space(10.0);
+
+    // Use full vertical space
+    ui.horizontal(|ui| {
+        // Left panel - Analysis List (with explicit width and height)
+        ui.vertical(|ui| {
+            ui.set_width(ui.available_width() * 0.3);
+            ui.set_min_height(available_size.y - 50.0);  // Subtract tab height
             show_analysis_list(ui, state);
+        });
 
-            // Right panel
-            ui.vertical(|ui| {
-                ui.set_min_width(available_size.x * 0.7);
-                ui.set_min_height(available_size.y);
+        ui.separator();
 
-                if let Some(selected_idx) = state.selected_analysis {
-                    if let Some(analysis) = state.analyses.get(selected_idx).cloned() {
-                        // Use analysis clone in tab content
-                        match state.analysis_tab {
-                            AnalysisTab::List => {
-                                show_analysis_list(ui, state);
-                            },
-                            AnalysisTab::Details => {
-                                show_analysis_details(ui, state, &analysis, selected_idx);
-                            },
-                            AnalysisTab::Results => {
-                                show_analysis_results(ui, state, &analysis);
-                            },
-                            AnalysisTab::Visualization => {
-                                if let Some(results) = state.latest_results.get(&analysis.id) {
-                                    let results = results.clone();
-                                    show_analysis_visualization(ui, state, &analysis, &results);
-                                } else {
-                                    ui.centered_and_justified(|ui| {
-                                        ui.label("Run analysis to see visualizations");
-                                    });
-                                }
-                            },
-                        }
+        // Right panel (full height)
+        ui.vertical(|ui| {
+            ui.set_width(ui.available_width());
+            ui.set_min_height(available_size.y - 50.0);  // Subtract tab height
+            
+            if let Some(selected_idx) = state.selected_analysis {
+                let analysis_opt = state.analyses.get(selected_idx).cloned();
+                let results_opt = state.analyses.get(selected_idx)
+                    .and_then(|analysis| state.latest_results.get(&analysis.id).cloned());
+
+                if let (Some(analysis), Some(results)) = (analysis_opt, results_opt) {
+                    match state.analysis_tab {
+                        AnalysisTab::List => show_analysis_list(ui, state),
+                        AnalysisTab::Details => show_analysis_details(ui, state, &analysis, selected_idx),
+                        AnalysisTab::Results => show_analysis_results(ui, state, &analysis),
+                        AnalysisTab::Visualization => {
+                            show_analysis_visualization(ui, state, &analysis, &results);
+                        },
                     }
                 } else {
                     ui.centered_and_justified(|ui| {
-                        ui.label("Select an analysis to view details");
+                        ui.label("No analysis selected or results available");
                     });
                 }
-            });
+            } else {
+                ui.centered_and_justified(|ui| {
+                    ui.label("Select an analysis to view details");
+                });
+            }
         });
+    });
 }
 
-// src/ui/analysis.rs
 fn show_analysis_list(ui: &mut egui::Ui, state: &mut AppState) {
     ui.vertical(|ui| {
-        ui.set_min_width(ui.available_width() * 0.3);
-        ui.set_min_height(ui.available_height());
-        
         ui.heading("Analyses");
         ui.add_space(4.0);
 
@@ -78,9 +91,8 @@ fn show_analysis_list(ui: &mut egui::Ui, state: &mut AppState) {
         ui.add_space(8.0);
 
         egui::ScrollArea::vertical()
-            .id_source("analysis_list_scroll")
             .show(ui, |ui| {
-                let analyses = state.analyses.clone(); // Clone to avoid borrow issues
+                let analyses = state.analyses.clone();
                 for (index, analysis) in analyses.iter().enumerate() {
                     let is_selected = state.selected_analysis == Some(index);
                     

@@ -337,7 +337,8 @@ fn show_mate_dialog(
             // Component A selection
             ui.group(|ui| {
                 ui.heading("Component A");
-                egui::ComboBox::from_label("Select Component")
+                ui.push_id("component_a_selection", |ui| {
+                 egui::ComboBox::from_label("Select Component")
                     .selected_text(&component_a)
                     .show_ui(ui, |ui| {
                         for component in &state.components {
@@ -347,10 +348,13 @@ fn show_mate_dialog(
                                 &component.name
                             );
                         }
-                    });
+                    });   
+                });
+                
 
                 if let Some(component) = state.components.iter().find(|c| c.name == component_a) {
-                    egui::ComboBox::from_label("Select Feature")
+                    ui.push_id("feature_a_selection", |ui| {
+                      egui::ComboBox::from_label("Select Feature")
                         .selected_text(&feature_a)
                         .show_ui(ui, |ui| {
                             for feature in &component.features {
@@ -360,7 +364,9 @@ fn show_mate_dialog(
                                     &feature.name
                                 );
                             }
-                        });
+                        });  
+                    });
+                    
                 }
             });
 
