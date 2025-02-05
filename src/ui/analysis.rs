@@ -448,14 +448,28 @@ fn show_analysis_visualization(
                         plot.show(ui, |plot_ui| {
                             // Create histogram bars
                             let bars: Vec<egui_plot::Bar> = mc.histogram.iter()
-                                .map(|(value, count)| {
+                            .enumerate()
+                            .map(|(i, (value, count))| {
+                                let bin_start = *value;
+                                let bin_end = if i < mc.histogram.len() - 1 {
+                                    mc.histogram[i + 1].0
+                                } else {
+                                    mc.max
+                                };
+                                
                                     egui_plot::Bar::new(*value, *count as f64)
                                         .width(((mc.max - mc.min) / mc.histogram.len() as f64) * 0.9)
                                         .fill(egui::Color32::from_rgb(100, 150, 255))
+                                        .name(format!("Range: {:.3} to {:.3}\nCount: {}", bin_start, bin_end, count))
                                 })
                                 .collect();
-
-                            plot_ui.bar_chart(egui_plot::BarChart::new(bars));
+                        
+                                plot_ui.bar_chart(
+                                    egui_plot::BarChart::new(bars)
+                                        .element_formatter(Box::new(|bar, _| {
+                                            format!("{}", bar.name)
+                                        }))
+                                );
 
                             // Add mean line
                             let mean_line = egui_plot::Line::new(vec![
