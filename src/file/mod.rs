@@ -7,6 +7,7 @@ use crate::file::mates::MatesFile;
 use crate::config::project::AnalysisReference;
 use crate::analysis::stackup::{StackupAnalysis, AnalysisResults};
 use crate::config::ComponentReference;
+use std::collections::HashMap;
 
 pub mod project;
 pub mod component;
@@ -86,7 +87,7 @@ impl FileManager {
         let project_dir = path.parent()
             .ok_or_else(|| anyhow!("Invalid project path: {}", path.display()))?;
 
-        // Load components with better error handling
+        // Load components
         for comp_ref in &project_file.component_references {
             let normalized_path = comp_ref.path.replace('\\', "/");
             let comp_path = project_dir.join(normalized_path);

@@ -83,10 +83,20 @@ impl AtlasApp {
                         self.state.project_file = project_file;
                         self.state.components = components;
                         self.state.mates = mates_file.mates;
-                        self.state.analyses = analyses
-                            .into_iter()
-                            .map(|(analysis, _)| analysis)
-                            .collect();
+                        
+                        // Load analyses and their latest results
+                        self.state.analyses.clear();
+                        self.state.latest_results.clear();
+                        
+                        for (analysis, results) in analyses {
+                            // Store any existing results
+                            if let Some(results) = results {
+                                self.state.latest_results.insert(analysis.id.clone(), results);
+                            }
+                            
+                            self.state.analyses.push(analysis);
+                        }
+                        
                         self.state.update_mate_graph();
                         self.state.error_message = None;
                     }
