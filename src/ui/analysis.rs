@@ -333,18 +333,13 @@ fn show_analysis_details(
 }
 
 
-fn show_analysis_results(
-    ui: &mut egui::Ui, 
-    state: &mut AppState,
-    analysis: &StackupAnalysis,
-) {
-    if let Some(results) = state.latest_results.get(&analysis.id) {
-        // Split the view horizontally
-        ui.horizontal(|ui| {
-            // Left side - Latest results
-            ui.vertical(|ui| {
-                ui.set_width(ui.available_width() * 0.7);
-                
+fn show_analysis_results(ui: &mut egui::Ui, state: &mut AppState, analysis: &StackupAnalysis) {
+    ui.horizontal(|ui| {
+        // Left side - Results display
+        ui.vertical(|ui| {
+            ui.set_width(ui.available_width() * 0.7);
+            
+            if let Some(results) = state.latest_results.get(&analysis.id) {
                 ui.group(|ui| {
                     ui.heading("Latest Results");
                     ui.add_space(8.0);
@@ -412,13 +407,55 @@ fn show_analysis_results(
                         });
                     }
                 });
-            });
+            } else {
+                ui.centered_and_justified(|ui| {
+                    ui.label("Run analysis to see results");
+                });
+            }
         });
-    } else {
-        ui.centered_and_justified(|ui| {
-            ui.label("Run analysis to see results");
+
+        // Right side - Results History
+        ui.vertical(|ui| {
+            ui.set_width(ui.available_width() * 0.3);
+            
+            if let Ok(metadata) = state.file_manager.analysis_handler.load_metadata(&analysis.id) {
+                ui.group(|ui| {
+                    ui.heading("Results History");
+                    egui::ScrollArea::vertical()
+                        .max_height(ui.available_height())
+                        .show(ui, |ui| {
+                            for result_file in metadata.results_files.iter().rev() {
+                                let timestamp = result_file.timestamp.format("%Y-%m-%d %H:%M").to_string();
+                                let methods = result_file.analysis_methods.iter()
+                                    .map(|m| format!("{:?}", m))
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                
+                                // Highlight current results
+                                let is_current = state.latest_results.get(&analysis.id)
+                                    .map(|r| r.timestamp == result_file.timestamp.to_rfc3339())
+                                    .unwrap_or(false);
+                                
+                                ui.group(|ui| {
+                                    if ui.selectable_label(is_current, format!("{}\n{}", timestamp, methods)).clicked() {
+                                        // Load the selected results
+                                        let results_path = state.file_manager.analysis_handler
+                                            .get_results_file_path(&result_file.path);
+                                            
+                                        if let Ok(content) = std::fs::read_to_string(&results_path) {
+                                            if let Ok(results) = ron::from_str(&content) {
+                                                state.latest_results.insert(analysis.id.clone(), results);
+                                            }
+                                        }
+                                    }
+                                });
+                                ui.add_space(4.0);
+                            }
+                        });
+                });
+            }
         });
-    }
+    });
 }
 
 fn show_analysis_visualization(
