@@ -9,58 +9,70 @@ use crate::utils::find_feature;
 pub fn show_analysis_view(ui: &mut egui::Ui, state: &mut AppState) {
     let available_size = ui.available_size();
 
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 10.0;
-        
-        let current_tab = state.analysis_tab;
-        let tabs = [
-            (AnalysisTab::Details, "Details"),
-            (AnalysisTab::Results, "Results"),
-            (AnalysisTab::Visualization, "Visualization"),
-        ];
-
-        for (tab, label) in tabs {
-            if ui.selectable_label(current_tab == tab, label).clicked() {
-                state.analysis_tab = tab;
-            }
-        }
-    });
-
-    ui.add_space(10.0);
-
     // Use full vertical space
     ui.horizontal(|ui| {
         // Left panel - Analysis List (with explicit width and height)
         ui.vertical(|ui| {
             ui.set_width(ui.available_width() * 0.3);
-            ui.set_min_height(available_size.y - 50.0);  // Subtract tab height
+            ui.set_min_height(available_size.y);
             show_analysis_list(ui, state);
         });
-
+        
         ui.separator();
 
-        // Right panel (full height)
+        // Right panel with tabs
         ui.vertical(|ui| {
             ui.set_width(ui.available_width());
-            ui.set_min_height(available_size.y - 50.0);  // Subtract tab height
+            ui.set_min_height(available_size.y);
             
-            if let Some(selected_idx) = state.selected_analysis {
-                let analysis_opt = state.analyses.get(selected_idx).cloned();
-                let results_opt = state.analyses.get(selected_idx)
-                    .and_then(|analysis| state.latest_results.get(&analysis.id).cloned());
+            // Tab bar
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                
+                let current_tab = state.analysis_tab;
+                let tabs = [
+                    (AnalysisTab::Details, "Details"),
+                    (AnalysisTab::Results, "Results"),
+                    (AnalysisTab::Visualization, "Visualization"),
+                ];
 
-                if let (Some(analysis), Some(results)) = (analysis_opt, results_opt) {
+                for (tab, label) in tabs {
+                    if ui.selectable_label(current_tab == tab, label).clicked() {
+                        state.analysis_tab = tab;
+                    }
+                }
+            });
+
+            ui.add_space(10.0);
+
+            // Tab content
+            if let Some(selected_idx) = state.selected_analysis {
+                if let Some(analysis) = state.analyses.get(selected_idx).cloned() {
+                    let results = state.latest_results.get(&analysis.id).cloned();
+                    
                     match state.analysis_tab {
-                        AnalysisTab::Details => show_analysis_details(ui, state, &analysis, selected_idx),
-                        AnalysisTab::Results => show_analysis_results(ui, state, &analysis),
+                        AnalysisTab::Details => {
+                            show_analysis_details(ui, state, &analysis, selected_idx);
+                        },
+                        AnalysisTab::Results => {
+                            if let Some(results) = results {
+                                show_analysis_results(ui, state, &analysis);
+                            } else {
+                                ui.centered_and_justified(|ui| {
+                                    ui.label("No results available - run analysis to see results");
+                                });
+                            }
+                        },
                         AnalysisTab::Visualization => {
-                            show_analysis_visualization(ui, state, &analysis, &results);
+                            if let Some(results) = results {
+                                show_analysis_visualization(ui, state, &analysis, &results);
+                            } else {
+                                ui.centered_and_justified(|ui| {
+                                    ui.label("No results available - run analysis to see visualizations");
+                                });
+                            }
                         },
                     }
-                } else {
-                    ui.centered_and_justified(|ui| {
-                        ui.label("No analysis selected or results available");
-                    });
                 }
             } else {
                 ui.centered_and_justified(|ui| {
