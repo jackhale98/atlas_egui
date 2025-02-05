@@ -93,7 +93,6 @@ pub enum Screen {
 // Analysis view tabs
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AnalysisTab {
-    List,
     Details,
     Results,
     Visualization,
@@ -142,7 +141,7 @@ impl AppState {
             latest_results: HashMap::new(),
             current_screen: Screen::Project,
             current_dialog: DialogState::None,
-            analysis_tab: AnalysisTab::List,
+            analysis_tab: AnalysisTab::Details,
             error_message: None,
             file_manager: FileManager::new(),
             selected_component: None,

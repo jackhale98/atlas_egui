@@ -14,7 +14,6 @@ pub fn show_analysis_view(ui: &mut egui::Ui, state: &mut AppState) {
         
         let current_tab = state.analysis_tab;
         let tabs = [
-            (AnalysisTab::List, "List"),
             (AnalysisTab::Details, "Details"),
             (AnalysisTab::Results, "Results"),
             (AnalysisTab::Visualization, "Visualization"),
@@ -52,7 +51,6 @@ pub fn show_analysis_view(ui: &mut egui::Ui, state: &mut AppState) {
 
                 if let (Some(analysis), Some(results)) = (analysis_opt, results_opt) {
                     match state.analysis_tab {
-                        AnalysisTab::List => show_analysis_list(ui, state),
                         AnalysisTab::Details => show_analysis_details(ui, state, &analysis, selected_idx),
                         AnalysisTab::Results => show_analysis_results(ui, state, &analysis),
                         AnalysisTab::Visualization => {
@@ -74,6 +72,8 @@ pub fn show_analysis_view(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn show_analysis_list(ui: &mut egui::Ui, state: &mut AppState) {
+    use chrono::DateTime;
+    
     ui.vertical(|ui| {
         ui.heading("Analyses");
         ui.add_space(4.0);
@@ -99,20 +99,31 @@ fn show_analysis_list(ui: &mut egui::Ui, state: &mut AppState) {
                     ui.group(|ui| {
                         ui.set_width(ui.available_width());
                         
-                        let methods_str = analysis.methods.iter()
-                            .map(|m| format!("{:?}", m))
-                            .collect::<Vec<_>>()
-                            .join(", ");
+                        // Format the timestamp if available
+                        let timestamp = state.latest_results.get(&analysis.id)
+                            .and_then(|r| DateTime::parse_from_rfc3339(&r.timestamp).ok())
+                            .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                            .unwrap_or_default();
                         
-                        let response = ui.selectable_label(
-                            is_selected,
+                        // Create compact display string
+                        let display_text = if timestamp.is_empty() {
                             format!(
-                                "{}\nMethods: {}\nContributions: {}",
+                                "{}\n{} methods, {} contributions",
                                 analysis.name,
-                                methods_str,
+                                analysis.methods.len(),
                                 analysis.contributions.len()
                             )
-                        );
+                        } else {
+                            format!(
+                                "{} - Last Run: {}\n{} methods, {} contributions",
+                                analysis.name,
+                                timestamp,
+                                analysis.methods.len(),
+                                analysis.contributions.len()
+                            )
+                        };
+                        
+                        let response = ui.selectable_label(is_selected, display_text);
 
                         if response.clicked() {
                             state.selected_analysis = Some(index);
@@ -134,7 +145,6 @@ fn show_analysis_list(ui: &mut egui::Ui, state: &mut AppState) {
                                 let results = analysis.run_analysis(&state.components);
                                 state.latest_results.insert(analysis.id.clone(), results.clone());
                                 
-                                // Save results to file system
                                 if let Err(e) = state.file_manager.analysis_handler.save_analysis(
                                     analysis,
                                     &results
@@ -146,42 +156,20 @@ fn show_analysis_list(ui: &mut egui::Ui, state: &mut AppState) {
 
                             ui.separator();
 
-                            let delete_clicked = ui.button(
-                                egui::RichText::new("🗑 Delete").color(egui::Color32::RED)
-                            ).clicked();
-
-                            if delete_clicked {
-                                let state_ptr = state as *mut AppState;
-                                unsafe {
-                                    (*state_ptr).analyses.remove(index);
-                                    if (*state_ptr).analyses.is_empty() {
-                                        (*state_ptr).selected_analysis = None;
-                                    } else if index >= (*state_ptr).analyses.len() {
-                                        (*state_ptr).selected_analysis = Some((*state_ptr).analyses.len() - 1);
-                                    }
-                                    if let Err(e) = (*state_ptr).save_project() {
-                                        (*state_ptr).error_message = Some(e.to_string());
-                                    }
+                            if ui.button(egui::RichText::new("🗑 Delete").color(egui::Color32::RED)).clicked() {
+                                state.analyses.remove(index);
+                                if state.analyses.is_empty() {
+                                    state.selected_analysis = None;
+                                } else if index >= state.analyses.len() {
+                                    state.selected_analysis = Some(state.analyses.len() - 1);
+                                }
+                                
+                                if let Err(e) = state.save_project() {
+                                    state.error_message = Some(e.to_string());
                                 }
                                 ui.close_menu();
                             }
                         });
-
-                        // Show additional details when selected
-                        if is_selected {
-                            ui.add_space(4.0);
-                            
-                            if let Some(results) = state.latest_results.get(&analysis.id) {
-                                ui.label(format!("Last Run: {}", results.timestamp));
-                                if let Some(mc) = &results.monte_carlo {
-                                    ui.label(format!(
-                                        "Mean: {:.3}, σ = {:.3}",
-                                        mc.mean,
-                                        mc.std_dev
-                                    ));
-                                }
-                            }
-                        }
                     });
                     ui.add_space(4.0);
                 }
