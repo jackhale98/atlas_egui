@@ -25,9 +25,10 @@ pub enum DistributionType {
     LogNormal,
 }
 
+// Add this impl after the DistributionType enum definition
 impl Default for DistributionType {
     fn default() -> Self {
-        DistributionType::Normal
+        DistributionType::Normal // Most common distribution type as default
     }
 }
 
@@ -39,6 +40,18 @@ pub struct DistributionParams {
     pub min: f64,               // Used for Uniform, Triangular
     pub max: f64,               // Used for Uniform, Triangular
     pub mode: Option<f64>,      // Used for Triangular
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessCapability {
+    pub upper_spec: Option<f64>,
+    pub lower_spec: Option<f64>,
+    pub cp: Option<f64>,
+    pub cpk: Option<f64>,
+    pub ppm_above: Option<f64>,
+    pub ppm_below: Option<f64>,
+    pub pph_above: Option<f64>,
+    pub pph_below: Option<f64>,
 }
 
 impl DistributionParams {
@@ -103,6 +116,8 @@ pub struct StackupAnalysis {
     pub contributions: Vec<StackupContribution>,
     pub methods: Vec<AnalysisMethod>,
     pub monte_carlo_settings: Option<MonteCarloSettings>,
+    pub upper_spec_limit: Option<f64>, 
+    pub lower_spec_limit: Option<f64>, 
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,6 +144,7 @@ pub struct AnalysisResults {
     pub worst_case: Option<WorstCaseResult>,
     pub rss: Option<RssResult>,
     pub monte_carlo: Option<MonteCarloResult>,
+    pub process_capability: Option<ProcessCapability>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -183,6 +199,8 @@ impl StackupAnalysis {
             contributions: Vec::new(),
             methods: vec![AnalysisMethod::WorstCase],
             monte_carlo_settings: None,
+            upper_spec_limit: None,  
+            lower_spec_limit: None,  
         }
     }
 
@@ -264,6 +282,7 @@ impl StackupAnalysis {
             worst_case: None,
             rss: None,
             monte_carlo: None,
+            process_capability: None,
         };
 
         for method in &self.methods {
@@ -280,6 +299,49 @@ impl StackupAnalysis {
                     }
                 }
             }
+        }
+        if let Some(mc) = &results.monte_carlo {
+            let process_capability = if let (Some(usl), Some(lsl)) = 
+                (self.upper_spec_limit, self.lower_spec_limit) {
+                let std_dev = mc.std_dev;
+                let mean = mc.mean;
+                
+                // Calculate Cp
+                let cp = if std_dev > 0.0 {
+                    Some((usl - lsl) / (6.0 * std_dev))
+                } else {
+                    None
+                };
+
+                // Calculate Cpk
+                let cpu = (usl - mean) / (3.0 * std_dev);
+                let cpl = (mean - lsl) / (3.0 * std_dev);
+                let cpk = Some(cpu.min(cpl));
+
+                // Calculate PPM using normal distribution
+                let normal = StatsNormal::new(mean, std_dev).unwrap();
+                let ppm_below = normal.cdf(lsl) * 1_000_000.0;
+                let ppm_above = (1.0 - normal.cdf(usl)) * 1_000_000.0;
+                
+                // Calculate PPH (parts per hour assuming 3600 parts per hour)
+                let pph_below = ppm_below * 3.6;
+                let pph_above = ppm_above * 3.6;
+
+                Some(ProcessCapability {
+                    upper_spec: Some(usl),
+                    lower_spec: Some(lsl),
+                    cp,
+                    cpk,
+                    ppm_above: Some(ppm_above),
+                    ppm_below: Some(ppm_below),
+                    pph_above: Some(pph_above),
+                    pph_below: Some(pph_below),
+                })
+            } else {
+                None
+            };
+
+            results.process_capability = process_capability;
         }
 
         results
@@ -638,53 +700,52 @@ impl StackupAnalysis {
         }
     }
 
-    fn calculate_confidence_intervals(results: &mut Vec<f64>, user_confidence: f64) -> Vec<ConfidenceInterval> {
-        // Sort results first for percentile calculations
-        results.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        
-        let n = results.len() as f64;
-        let mean = results.iter().sum::<f64>() / n;
-        
-        // Calculate sample standard deviation
-        let variance = if results.len() > 1 {
-            results.iter()
-                .map(|x| (x - mean).powi(2))
-                .sum::<f64>() / (n - 1.0)
-        } else {
-            0.0
-        };
-        let std_dev = variance.sqrt();
+/// Calculate confidence intervals directly from Monte Carlo results
+/// Uses actual simulation data which naturally accounts for the combined effects
+/// of different distributions in the stack.
+/// Calculate confidence intervals directly from Monte Carlo results
+fn calculate_confidence_intervals(results: &mut Vec<f64>, user_confidence: f64) -> Vec<ConfidenceInterval> {
+    // Sort results for percentile calculations
+    results.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-        // Create standard normal distribution
-        let normal = StatsNormal::new(0.0, 1.0).unwrap();
-
-        // Calculate intervals for different confidence levels including user-specified
-        let confidence_levels = vec![
-            0.90f64,
-            0.95f64,
-            0.99f64,
-            user_confidence.clamp(0.0, 0.9999), // Clamp user confidence to valid range
-        ];
-
-        confidence_levels.into_iter()
-            .map(|confidence| {
-                let alpha = 1.0 - confidence;
-                let z_score = normal.inverse_cdf(1.0 - alpha/2.0);
-                
-                // Calculate margin of error
-                let margin = z_score * std_dev / n.sqrt();
-                
-                // For small sample sizes (n < 30), could use t-distribution
-                // But for Monte Carlo we typically have many samples
-                
-                ConfidenceInterval {
-                    confidence_level: confidence,
-                    lower_bound: mean - margin,
-                    upper_bound: mean + margin,
-                }
-            })
-            .collect()
+    let n = results.len();
+    if n == 0 {
+        return Vec::new();
     }
+
+    // Start with 100% interval using actual min/max values
+    let mut intervals = vec![ConfidenceInterval {
+        confidence_level: 1.0,
+        lower_bound: results[0], // Min value
+        upper_bound: results[n - 1], // Max value
+    }];
+
+    // Add standard confidence levels
+    let standard_levels = vec![
+        0.90f64,
+        0.95f64,
+        0.99f64,
+        user_confidence.clamp(0.0, 0.9999),
+    ];
+
+    intervals.extend(standard_levels.into_iter().map(|confidence| {
+        let alpha = 1.0 - confidence;
+        let lower_index = ((alpha / 2.0) * (n as f64)).round() as usize;
+        let upper_index = ((1.0 - alpha / 2.0) * (n as f64)).round() as usize;
+
+        // Clamp indices to valid range
+        let lower_index = lower_index.min(n - 1);
+        let upper_index = upper_index.min(n - 1);
+
+        ConfidenceInterval {
+            confidence_level: confidence,
+            lower_bound: results[lower_index],
+            upper_bound: results[upper_index],
+        }
+    }));
+
+    intervals
+}
 
     fn calculate_histogram(results: &[f64], num_bins: usize) -> Vec<(f64, usize)> {
         if results.is_empty() {

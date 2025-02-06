@@ -505,8 +505,11 @@ impl MateDialog {
         name: String,
         methods: Vec<AnalysisMethod>,
         monte_carlo_settings: MonteCarloSettings,
+        upper_spec_limit: Option<f64>, 
+        lower_spec_limit: Option<f64>, 
         open: bool,
     }
+    
     
     impl AnalysisDialog {
         pub fn new() -> Self {
@@ -602,6 +605,38 @@ impl MateDialog {
                                     });
                                 });
                             }
+                            ui.add_space(8.0);
+                            ui.group(|ui| {
+                                ui.heading("Specification Limits");
+                                
+                                // Upper Spec Limit
+                                ui.horizontal(|ui| {
+                                    ui.label("Upper Spec:");
+                                    let mut usl_str = self.upper_spec_limit
+                                        .map(|v| v.to_string())
+                                        .unwrap_or_default();
+                                    if ui.text_edit_singleline(&mut usl_str).changed() {
+                                        self.upper_spec_limit = usl_str.parse().ok();
+                                    }
+                                    if ui.small_button("❌").clicked() {
+                                        self.upper_spec_limit = None;
+                                    }
+                                });
+                    
+                                // Lower Spec Limit
+                                ui.horizontal(|ui| {
+                                    ui.label("Lower Spec:");
+                                    let mut lsl_str = self.lower_spec_limit
+                                        .map(|v| v.to_string())
+                                        .unwrap_or_default();
+                                    if ui.text_edit_singleline(&mut lsl_str).changed() {
+                                        self.lower_spec_limit = lsl_str.parse().ok();
+                                    }
+                                    if ui.small_button("❌").clicked() {
+                                        self.lower_spec_limit = None;
+                                    }
+                                });
+                            });
     
                             // Action buttons
                             ui.add_space(16.0);
@@ -626,6 +661,8 @@ impl MateDialog {
                                         } else {
                                             None
                                         },
+                                        upper_spec_limit: self.upper_spec_limit,
+                                        lower_spec_limit: self.lower_spec_limit,
                                     };
     
                                     if let Some(idx) = edit_index {
@@ -660,10 +697,14 @@ impl MateDialog {
                 self.methods = analysis.methods.clone();
                 self.monte_carlo_settings = analysis.monte_carlo_settings.clone()
                     .unwrap_or_default();
+                self.upper_spec_limit = analysis.upper_spec_limit;
+                self.lower_spec_limit = analysis.lower_spec_limit;
             } else {
                 self.name.clear();
                 self.methods = vec![AnalysisMethod::WorstCase];
                 self.monte_carlo_settings = MonteCarloSettings::default();
+                self.upper_spec_limit = None;
+                self.lower_spec_limit = None;
             }
         }
     }
