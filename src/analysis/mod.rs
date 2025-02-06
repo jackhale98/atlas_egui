@@ -7,4 +7,5 @@ pub use stackup::{
     StackupAnalysis,
     AnalysisResults,
     MonteCarloResult,
+    StackupContribution,
 };

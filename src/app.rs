@@ -4,16 +4,18 @@ use rfd::FileDialog;
 use std::path::PathBuf;
 
 use crate::state::{AppState, Screen, DialogState};
-use crate::ui::dialog;
+use crate::ui::{dialog, DialogManager}; // Add DialogManager import
 
 pub struct AtlasApp {
     state: AppState,
+    dialog_manager: DialogManager, // Add dialog manager
 }
 
 impl AtlasApp {
     pub fn new() -> Self {
         Self {
             state: AppState::new(),
+            dialog_manager: DialogManager::new(), // Initialize dialog manager
         }
     }
 
@@ -168,10 +170,7 @@ impl eframe::App for AtlasApp {
                 });
         }
 
-        // Handle dialogs
-        match self.state.current_dialog {
-            DialogState::None => {},
-            _ => dialog::show_dialog(ctx, &mut self.state),
-        }
+        // Handle dialogs using dialog manager
+        self.dialog_manager.show(ctx, &mut self.state);
     }
 }
