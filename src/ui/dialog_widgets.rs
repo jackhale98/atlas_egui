@@ -505,8 +505,8 @@ impl MateDialog {
         name: String,
         methods: Vec<AnalysisMethod>,
         monte_carlo_settings: MonteCarloSettings,
-        upper_spec_limit: Option<f64>, 
-        lower_spec_limit: Option<f64>, 
+        upper_spec_limit_str: String,
+        lower_spec_limit_str: String, 
         open: bool,
     }
     
@@ -612,29 +612,17 @@ impl MateDialog {
                                 // Upper Spec Limit
                                 ui.horizontal(|ui| {
                                     ui.label("Upper Spec:");
-                                    let mut usl_str = self.upper_spec_limit
-                                        .map(|v| v.to_string())
-                                        .unwrap_or_default();
-                                    if ui.text_edit_singleline(&mut usl_str).changed() {
-                                        self.upper_spec_limit = usl_str.parse().ok();
-                                    }
-                                    if ui.small_button("❌").clicked() {
-                                        self.upper_spec_limit = None;
-                                    }
+                                    ui.add(egui::TextEdit::singleline(&mut self.upper_spec_limit_str)
+                                        .desired_width(100.0)
+                                        .hint_text("Enter USL"));
                                 });
-                    
+                        
                                 // Lower Spec Limit
                                 ui.horizontal(|ui| {
                                     ui.label("Lower Spec:");
-                                    let mut lsl_str = self.lower_spec_limit
-                                        .map(|v| v.to_string())
-                                        .unwrap_or_default();
-                                    if ui.text_edit_singleline(&mut lsl_str).changed() {
-                                        self.lower_spec_limit = lsl_str.parse().ok();
-                                    }
-                                    if ui.small_button("❌").clicked() {
-                                        self.lower_spec_limit = None;
-                                    }
+                                    ui.add(egui::TextEdit::singleline(&mut self.lower_spec_limit_str)
+                                        .desired_width(100.0)
+                                        .hint_text("Enter LSL"));
                                 });
                             });
     
@@ -661,8 +649,16 @@ impl MateDialog {
                                         } else {
                                             None
                                         },
-                                        upper_spec_limit: self.upper_spec_limit,
-                                        lower_spec_limit: self.lower_spec_limit,
+                                        upper_spec_limit: if !self.upper_spec_limit_str.is_empty() {
+                                            self.upper_spec_limit_str.parse().ok()
+                                        } else {
+                                            None
+                                        },
+                                        lower_spec_limit: if !self.lower_spec_limit_str.is_empty() {
+                                            self.lower_spec_limit_str.parse().ok()
+                                        } else {
+                                            None
+                                        },
                                     };
     
                                     if let Some(idx) = edit_index {
@@ -697,14 +693,18 @@ impl MateDialog {
                 self.methods = analysis.methods.clone();
                 self.monte_carlo_settings = analysis.monte_carlo_settings.clone()
                     .unwrap_or_default();
-                self.upper_spec_limit = analysis.upper_spec_limit;
-                self.lower_spec_limit = analysis.lower_spec_limit;
+                self.upper_spec_limit_str = analysis.upper_spec_limit
+                    .map(|v| v.to_string())
+                    .unwrap_or_default();
+                self.lower_spec_limit_str = analysis.lower_spec_limit
+                    .map(|v| v.to_string())
+                    .unwrap_or_default();
             } else {
                 self.name.clear();
                 self.methods = vec![AnalysisMethod::WorstCase];
                 self.monte_carlo_settings = MonteCarloSettings::default();
-                self.upper_spec_limit = None;
-                self.lower_spec_limit = None;
+                self.upper_spec_limit_str.clear();
+                self.lower_spec_limit_str.clear();
             }
         }
     }
