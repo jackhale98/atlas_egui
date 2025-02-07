@@ -393,78 +393,66 @@ fn show_analysis_results(ui: &mut egui::Ui, state: &mut AppState, analysis: &Sta
                                 ui.group(|ui| {
                                     ui.heading("Process Capability");
                                     
-                                    // Show spec limits if they exist
-                                    if let Some(usl) = process_cap.upper_spec {
-                                        ui.label(format!("Upper Spec Limit: {:.6}", usl));
-                                    }
-                                    if let Some(lsl) = process_cap.lower_spec {
-                                        ui.label(format!("Lower Spec Limit: {:.6}", lsl));
-                                    }
-                                    
-                                    ui.add_space(4.0);
-                                    
-                                    // Show capability indices
-                                    if let Some(cp) = process_cap.cp {
-                                        ui.horizontal(|ui| {
-                                            ui.label("Cp:");
-                                            let color = if cp >= 1.33 {
-                                                egui::Color32::GREEN
-                                            } else if cp >= 1.0 {
-                                                egui::Color32::YELLOW
+                                    egui::Grid::new("process_capability_grid")
+                                        .num_columns(4)
+                                        .spacing([20.0, 4.0])
+                                        .show(ui, |ui| {
+                                            // Specification Limits
+                                            ui.label("Specification Limits:");
+                                            if let Some(lsl) = process_cap.lower_spec {
+                                                ui.label(format!("LSL: {:.6}", lsl));
                                             } else {
-                                                egui::Color32::RED
-                                            };
-                                            ui.colored_label(color, format!("{:.3}", cp));
-                                        });
-                                    }
-                                    
-                                    if let Some(cpk) = process_cap.cpk {
-                                        ui.horizontal(|ui| {
-                                            ui.label("Cpk:");
-                                            let color = if cpk >= 1.33 {
-                                                egui::Color32::GREEN
-                                            } else if cpk >= 1.0 {
-                                                egui::Color32::YELLOW
+                                                ui.label("LSL: —");
+                                            }
+                                            if let Some(usl) = process_cap.upper_spec {
+                                                ui.label(format!("USL: {:.6}", usl));
                                             } else {
-                                                egui::Color32::RED
-                                            };
-                                            ui.colored_label(color, format!("{:.3}", cpk));
+                                                ui.label("USL: —");
+                                            }
+                                            ui.end_row();
+                            
+                                            // Capability Indices
+                                            ui.label("Capability Indices:");
+                                            if let Some(cp) = process_cap.cp {
+                                                let color = if cp >= 1.33 {
+                                                    egui::Color32::GREEN
+                                                } else if cp >= 1.0 {
+                                                    egui::Color32::YELLOW
+                                                } else {
+                                                    egui::Color32::RED
+                                                };
+                                                ui.colored_label(color, format!("Cp: {:.3}", cp));
+                                            }
+                                            if let Some(cpk) = process_cap.cpk {
+                                                let color = if cpk >= 1.33 {
+                                                    egui::Color32::GREEN
+                                                } else if cpk >= 1.0 {
+                                                    egui::Color32::YELLOW
+                                                } else {
+                                                    egui::Color32::RED
+                                                };
+                                                ui.colored_label(color, format!("Cpk: {:.3}", cpk));
+                                            }
+                                            ui.end_row();
+                            
+                                            // PPM Values
+                                            if let (Some(ppm_below), Some(ppm_above)) = (process_cap.ppm_below, process_cap.ppm_above) {
+                                                ui.label("Expected PPM:");
+                                                ui.label(format!("Below: {:.1}", ppm_below));
+                                                ui.label(format!("Above: {:.1}", ppm_above));
+                                                ui.label(format!("Total: {:.1}", ppm_below + ppm_above));
+                                                ui.end_row();
+                                            }
+                            
+                                            // PPH Values
+                                            if let (Some(pph_below), Some(pph_above)) = (process_cap.pph_below, process_cap.pph_above) {
+                                                ui.label("Expected PPH:");
+                                                ui.label(format!("Below: {:.1}", pph_below));
+                                                ui.label(format!("Above: {:.1}", pph_above));
+                                                ui.label(format!("Total: {:.1}", pph_below + pph_above));
+                                                ui.end_row();
+                                            }
                                         });
-                                    }
-                                    
-                                    ui.add_space(4.0);
-                                    
-                                    // Show PPM and PPH if available
-                                    if let (Some(ppm_below), Some(ppm_above)) = (process_cap.ppm_below, process_cap.ppm_above) {
-                                        ui.horizontal(|ui| {
-                                            ui.label("Total PPM:");
-                                            ui.strong(format!("{:.1}", ppm_below + ppm_above));
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label("PPM Below LSL:");
-                                            ui.strong(format!("{:.1}", ppm_below));
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label("PPM Above USL:");
-                                            ui.strong(format!("{:.1}", ppm_above));
-                                        });
-                                    }
-                                    
-                                    if let (Some(pph_below), Some(pph_above)) = (process_cap.pph_below, process_cap.pph_above) {
-                                        ui.add_space(4.0);
-                                        ui.horizontal(|ui| {
-                                            ui.label("Total PPH:");
-                                            ui.strong(format!("{:.1}", pph_below + pph_above));
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label("PPH Below LSL:");
-                                            ui.strong(format!("{:.1}", pph_below));
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label("PPH Above USL:");
-                                            ui.strong(format!("{:.1}", pph_above));
-                                        });
-                                    }
                                 });
                             }
                         }
