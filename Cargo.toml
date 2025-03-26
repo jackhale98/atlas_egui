@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 # GUI Framework
 eframe = { version = "0.24.0", features = ["persistence"] }  # Includes egui
+winapi = { version = "0.3", features = ["winuser"] }
 egui_plot = "0.24.0"  # For visualization support
 
 # Core functionality

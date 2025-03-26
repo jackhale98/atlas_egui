@@ -11,5 +11,10 @@
             path: "components/test_comp_2_rev_b.ron",
         ),
     ],
-    analyses: [],
+    analyses: [
+        (
+            path: "analyses/stackups/ad833969-bf82-4a8f-8ab1-575d429ceda0/analysis.ron",
+            analysis_type: "stackup",
+        ),
+    ],
 )
