@@ -51,6 +51,7 @@ impl AtlasApp {
                 (Screen::Mates, "Mates"),
                 (Screen::DependencyMatrix, "Dependencies"),
                 (Screen::Analysis, "Analysis"),
+                (Screen::GitControl, "Git"),
             ];
 
             for (mode, label) in tabs {
@@ -148,10 +149,13 @@ impl eframe::App for AtlasApp {
                     crate::ui::mates::show_mates_view(ui, &mut self.state);
                 },
                 Screen::DependencyMatrix => {
-                    ui.label("Dependencies View - Coming Soon");
+                    crate::ui::dependency_matrix::show_dependency_matrix(ui, &mut self.state);
                 },
                 Screen::Analysis => {
                     crate::ui::analysis::show_analysis_view(ui, &mut self.state);
+                },
+                Screen::GitControl => {
+                    crate::ui::git_control::show_git_control(ui, &mut self.state);
                 },
             }
         });

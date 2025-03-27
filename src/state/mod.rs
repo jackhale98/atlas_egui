@@ -91,6 +91,7 @@ pub enum Screen {
     Mates,
     DependencyMatrix,
     Analysis,
+    GitControl,
 }
 
 // Analysis view tabs
@@ -132,6 +133,9 @@ pub struct AppState {
     pub selected_analysis: Option<usize>,
 
     pub mate_state: mate_state::MateState,
+
+    pub dependency_map_cache: Option<HashMap<((String, String), (String, String)), usize>>,
+    pub dependency_map_cache_dirty: bool,
 }
 
 impl AppState {
@@ -154,6 +158,9 @@ impl AppState {
             selected_feature: None,
             selected_mate: None, 
             selected_analysis: None,
+
+            dependency_map_cache: None,
+            dependency_map_cache_dirty: true,
         }
     }
 
