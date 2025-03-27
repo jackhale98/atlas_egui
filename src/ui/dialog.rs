@@ -165,7 +165,7 @@ impl DialogManager {
                 } else {
                     None
                 };
-
+            
                 if let Some(changed) = self.analysis_dialog.show(
                     ctx,
                     edit_index,
@@ -173,12 +173,23 @@ impl DialogManager {
                     || { state.current_dialog = DialogState::None }
                 ) {
                     if changed {
+                        // If editing, preserve the analysis ID to keep history connected
+                        if let Some(index) = edit_index {
+                            if let Some(prev_analysis) = state.analyses.get(index) {
+                                let prev_id = prev_analysis.id.clone();
+                                // Update the ID of the edited analysis to match the original
+                                if let Some(edited_analysis) = state.analyses.get_mut(index) {
+                                    edited_analysis.id = prev_id;
+                                }
+                            }
+                        }
+                        
                         if let Err(e) = state.save_project() {
                             state.error_message = Some(e.to_string());
                         }
                     }
                 }
-            },
+            }
 
             DialogState::NewContribution { analysis_index, .. } | 
             DialogState::EditContribution { analysis_index, .. } => {

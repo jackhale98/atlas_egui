@@ -13,7 +13,7 @@
     ],
     analyses: [
         (
-            path: "analyses/stackups/ad833969-bf82-4a8f-8ab1-575d429ceda0/analysis.ron",
+            path: "analyses/stackups/173717ac-c5d5-4123-97f3-50f23c66e921/analysis.ron",
             analysis_type: "stackup",
         ),
     ],

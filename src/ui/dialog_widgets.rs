@@ -636,8 +636,14 @@ impl MateDialog {
                                 let can_save = !self.name.trim().is_empty() && !self.methods.is_empty();
                                 if ui.add_enabled(can_save, egui::Button::new("Save")).clicked() {
                                     let new_analysis = StackupAnalysis {
-                                        id: Uuid::new_v4().to_string(),
+                                        // For editing, preserve the original ID
+                                        id: if let Some(idx) = edit_index {
+                                            analyses[idx].id.clone()
+                                        } else {
+                                            Uuid::new_v4().to_string()
+                                        },
                                         name: self.name.clone(),
+                                        // Preserve existing contributions when editing
                                         contributions: if let Some(idx) = edit_index {
                                             analyses[idx].contributions.clone()
                                         } else {
@@ -660,13 +666,13 @@ impl MateDialog {
                                             None
                                         },
                                     };
-    
+                                
                                     if let Some(idx) = edit_index {
                                         analyses[idx] = new_analysis;
                                     } else {
                                         analyses.push(new_analysis);
                                     }
-    
+                                
                                     changed = true;
                                     should_close = true;
                                 }

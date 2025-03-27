@@ -13,7 +13,7 @@ pub fn show_analysis_view(ui: &mut egui::Ui, state: &mut AppState) {
     ui.horizontal(|ui| {
         // Left panel - Analysis List (with explicit width and height)
         ui.vertical(|ui| {
-            ui.set_width(ui.available_width() * 0.3);
+            ui.set_width(ui.available_width() * 0.25);
             ui.set_min_height(available_size.y);
             show_analysis_list(ui, state);
         });
@@ -127,7 +127,7 @@ fn show_analysis_list(ui: &mut egui::Ui, state: &mut AppState) {
                             )
                         } else {
                             format!(
-                                "{} - Last Run: {}\n{} methods, {} contributions",
+                                "{}\nLast Run: {}\n{} methods, {} contributions",
                                 analysis.name,
                                 timestamp,
                                 analysis.methods.len(),
@@ -334,134 +334,178 @@ fn show_analysis_details(
 
 
 fn show_analysis_results(ui: &mut egui::Ui, state: &mut AppState, analysis: &StackupAnalysis) {
-    ui.horizontal(|ui| {
-        // Left side - Results display
-        ui.vertical(|ui| {
-            ui.set_width(ui.available_width() * 0.7);
+    // Main layout - vertical with Latest Results on top, History on bottom
+    ui.vertical(|ui| {
+        // Top section - Latest Results
+        ui.group(|ui| {
+            ui.set_width(ui.available_width());
             
-            if let Some(results) = state.latest_results.get(&analysis.id) {
-                ui.group(|ui| {
-                    ui.heading("Latest Results");
-                    ui.add_space(8.0);
-                    
-                    // Nominal value
-                    ui.group(|ui| {
-                        ui.heading("Nominal Value");
-                        ui.strong(format!("{:.6}", results.nominal));
-                    });
-                    ui.add_space(8.0);
-
-                    // Analysis results
-                    ui.horizontal(|ui| {
-                        ui.set_width(ui.available_width());
+            // Clone the results if available (to avoid borrow issues)
+            let results_clone = state.latest_results.get(&analysis.id).cloned();
+            
+            // Run Analysis button (outside of any closures to avoid borrow conflicts)
+            ui.horizontal(|ui| {
+                ui.heading("Analysis Results");
+                
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("▶ Run Analysis").clicked() {
+                        let new_results = analysis.run_analysis(&state.components);
                         
-                        if let Some(wc) = &results.worst_case {
+                        if let Err(e) = state.file_manager.analysis_handler.save_analysis(
+                            analysis,
+                            &new_results
+                        ) {
+                            state.error_message = Some(format!("Error saving analysis results: {}", e));
+                        }
+                        
+                        // Update results after saving
+                        state.latest_results.insert(analysis.id.clone(), new_results);
+                    }
+                });
+            });
+            
+            ui.add_space(8.0);
+            
+            if let Some(results) = results_clone {
+                // Nominal value
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.group(|ui| {
+                            ui.heading("Nominal Value");
+                            ui.strong(format!("{:.6}", results.nominal));
+                        });
+                    });
+                });
+                
+                ui.add_space(8.0);
+
+                // Analysis results in a horizontal layout
+                ui.horizontal(|ui| {
+                    if let Some(wc) = &results.worst_case {
+                        ui.group(|ui| {
                             ui.vertical(|ui| {
-                                ui.group(|ui| {
-                                    ui.heading("Worst Case");
-                                    ui.label(format!("Min: {:.6}", wc.min));
-                                    ui.label(format!("Max: {:.6}", wc.max));
-                                    ui.label(format!("Range: {:.6}", wc.max - wc.min));
+                                ui.heading("Worst Case");
+                                ui.label(format!("Min: {:.6}", wc.min));
+                                ui.label(format!("Max: {:.6}", wc.max));
+                                ui.label(format!("Range: {:.6}", wc.max - wc.min));
+                            });
+                        });
+
+                        if let Some(rss) = &results.rss {
+                            ui.group(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.heading("RSS Analysis");
+                                    ui.label(format!("Mean: {:.6}", results.nominal));
+                                    ui.label(format!("Std Dev: {:.6}", rss.std_dev));
+                                    ui.label(format!("3σ Range: [{:.6}, {:.6}]", rss.min, rss.max));
                                 });
                             });
-
-                            ui.add_space(8.0);
-
-                            if let Some(rss) = &results.rss {
-                                ui.vertical(|ui| {
-                                    ui.group(|ui| {
-                                        ui.heading("RSS Analysis");
-                                        ui.label(format!("Mean: {:.6}", results.nominal));
-                                        ui.label(format!("Std Dev: {:.6}", rss.std_dev));
-                                        ui.label(format!("3σ Range: [{:.6}, {:.6}]", rss.min, rss.max));
-                                    });
-                                });
-                            }
-
-                            if let Some(mc) = &results.monte_carlo {
-                                ui.vertical(|ui| {
-                                    ui.group(|ui| {
-                                        ui.heading("Monte Carlo");
-                                        ui.label(format!("Mean: {:.6}", mc.mean));
-                                        ui.label(format!("Std Dev: {:.6}", mc.std_dev));
-                                        ui.label(format!("Range: [{:.6}, {:.6}]", mc.min, mc.max));
-                                    });
-                                });
-                            }
-                            if let Some(process_cap) = &results.process_capability {
-                                ui.add_space(8.0);
-                                ui.group(|ui| {
-                                    ui.heading("Process Capability");
-                                    
-                                    egui::Grid::new("process_capability_grid")
-                                        .num_columns(4)
-                                        .spacing([20.0, 4.0])
-                                        .show(ui, |ui| {
-                                            // Specification Limits
-                                            ui.label("Specification Limits:");
-                                            if let Some(lsl) = process_cap.lower_spec {
-                                                ui.label(format!("LSL: {:.6}", lsl));
-                                            } else {
-                                                ui.label("LSL: —");
-                                            }
-                                            if let Some(usl) = process_cap.upper_spec {
-                                                ui.label(format!("USL: {:.6}", usl));
-                                            } else {
-                                                ui.label("USL: —");
-                                            }
-                                            ui.end_row();
-                            
-                                            // Capability Indices
-                                            ui.label("Capability Indices:");
-                                            if let Some(cp) = process_cap.cp {
-                                                let color = if cp >= 1.33 {
-                                                    egui::Color32::GREEN
-                                                } else if cp >= 1.0 {
-                                                    egui::Color32::YELLOW
-                                                } else {
-                                                    egui::Color32::RED
-                                                };
-                                                ui.colored_label(color, format!("Cp: {:.3}", cp));
-                                            }
-                                            if let Some(cpk) = process_cap.cpk {
-                                                let color = if cpk >= 1.33 {
-                                                    egui::Color32::GREEN
-                                                } else if cpk >= 1.0 {
-                                                    egui::Color32::YELLOW
-                                                } else {
-                                                    egui::Color32::RED
-                                                };
-                                                ui.colored_label(color, format!("Cpk: {:.3}", cpk));
-                                            }
-                                            ui.end_row();
-                            
-                                            // PPM Values
-                                            if let (Some(ppm_below), Some(ppm_above)) = (process_cap.ppm_below, process_cap.ppm_above) {
-                                                ui.label("Expected PPM:");
-                                                ui.label(format!("Below: {:.1}", ppm_below));
-                                                ui.label(format!("Above: {:.1}", ppm_above));
-                                                ui.label(format!("Total: {:.1}", ppm_below + ppm_above));
-                                                ui.end_row();
-                                            }
-                            
-                                            // PPH Values
-                                            if let (Some(pph_below), Some(pph_above)) = (process_cap.pph_below, process_cap.pph_above) {
-                                                ui.label("Expected PPH:");
-                                                ui.label(format!("Below: {:.1}", pph_below));
-                                                ui.label(format!("Above: {:.1}", pph_above));
-                                                ui.label(format!("Total: {:.1}", pph_below + pph_above));
-                                                ui.end_row();
-                                            }
-                                        });
-                                });
-                            }
                         }
-                    });
 
-                    // Confidence Intervals
-                    if let Some(mc) = &results.monte_carlo {
-                        ui.add_space(8.0);
-                        ui.group(|ui| {
+                        if let Some(mc) = &results.monte_carlo {
+                            ui.group(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.heading("Monte Carlo");
+                                    ui.label(format!("Mean: {:.6}", mc.mean));
+                                    ui.label(format!("Std Dev: {:.6}", mc.std_dev));
+                                    ui.label(format!("Range: [{:.6}, {:.6}]", mc.min, mc.max));
+                                });
+                            });
+                        }
+                    }
+                });
+
+                // Process Capability section
+                if let Some(process_cap) = &results.process_capability {
+                    ui.add_space(8.0);
+                    ui.group(|ui| {
+                        ui.vertical(|ui| {
+                            ui.heading("Process Capability");
+                            
+                            // Specification limits
+                            ui.horizontal(|ui| {
+                                ui.label("Specification Limits:");
+                                ui.add_space(5.0);
+                                
+                                if let Some(lsl) = process_cap.lower_spec {
+                                    ui.label(format!("LSL: {:.6}", lsl));
+                                } else {
+                                    ui.label("LSL: —");
+                                }
+                                
+                                ui.add_space(20.0);
+                                
+                                if let Some(usl) = process_cap.upper_spec {
+                                    ui.label(format!("USL: {:.6}", usl));
+                                } else {
+                                    ui.label("USL: —");
+                                }
+                            });
+                            
+                            // Capability indices
+                            ui.horizontal(|ui| {
+                                ui.label("Capability Indices:");
+                                ui.add_space(5.0);
+                                
+                                if let Some(cp) = process_cap.cp {
+                                    let color = if cp >= 1.33 {
+                                        egui::Color32::GREEN
+                                    } else if cp >= 1.0 {
+                                        egui::Color32::YELLOW
+                                    } else {
+                                        egui::Color32::RED
+                                    };
+                                    ui.colored_label(color, format!("Cp: {:.3}", cp));
+                                }
+                                
+                                ui.add_space(20.0);
+                                
+                                if let Some(cpk) = process_cap.cpk {
+                                    let color = if cpk >= 1.33 {
+                                        egui::Color32::GREEN
+                                    } else if cpk >= 1.0 {
+                                        egui::Color32::YELLOW
+                                    } else {
+                                        egui::Color32::RED
+                                    };
+                                    ui.colored_label(color, format!("Cpk: {:.3}", cpk));
+                                }
+                            });
+                            
+                            // PPM Values
+                            if let (Some(ppm_below), Some(ppm_above)) = (process_cap.ppm_below, process_cap.ppm_above) {
+                                ui.horizontal(|ui| {
+                                    ui.label("Expected PPM:");
+                                    ui.add_space(5.0);
+                                    ui.label(format!("Below: {:.1}", ppm_below));
+                                    ui.add_space(20.0);
+                                    ui.label(format!("Above: {:.1}", ppm_above));
+                                    ui.add_space(20.0);
+                                    ui.label(format!("Total: {:.1}", ppm_below + ppm_above));
+                                });
+                            }
+                            
+                            // PPH Values
+                            if let (Some(pph_below), Some(pph_above)) = (process_cap.pph_below, process_cap.pph_above) {
+                                ui.horizontal(|ui| {
+                                    ui.label("Expected PPH:");
+                                    ui.add_space(5.0);
+                                    ui.label(format!("Below: {:.1}", pph_below));
+                                    ui.add_space(20.0);
+                                    ui.label(format!("Above: {:.1}", pph_above));
+                                    ui.add_space(20.0);
+                                    ui.label(format!("Total: {:.1}", pph_below + pph_above));
+                                });
+                            }
+                        });
+                    });
+                }
+
+                // Confidence Intervals
+                if let Some(mc) = &results.monte_carlo {
+                    ui.add_space(8.0);
+                    ui.group(|ui| {
+                        ui.vertical(|ui| {
                             ui.heading("Confidence Intervals");
                             for interval in &mc.confidence_intervals {
                                 ui.label(format!(
@@ -472,54 +516,103 @@ fn show_analysis_results(ui: &mut egui::Ui, state: &mut AppState, analysis: &Sta
                                 ));
                             }
                         });
-                    }
-                });
+                    });
+                }
             } else {
                 ui.centered_and_justified(|ui| {
-                    ui.label("Run analysis to see results");
+                    ui.label("No results available - run analysis to see results");
                 });
             }
         });
 
-        // Right side - Results History
-        ui.vertical(|ui| {
-            ui.set_width(ui.available_width() * 0.3);
+        ui.add_space(8.0);
+
+        // Bottom section - Results History
+        ui.group(|ui| {
+            ui.set_width(ui.available_width());
+            ui.heading("Results History");
             
-            if let Ok(metadata) = state.file_manager.analysis_handler.load_metadata(&analysis.id) {
-                ui.group(|ui| {
-                    ui.heading("Results History");
-                    egui::ScrollArea::vertical()
-                        .max_height(ui.available_height())
-                        .show(ui, |ui| {
-                            for result_file in metadata.results_files.iter().rev() {
-                                let timestamp = result_file.timestamp.format("%Y-%m-%d %H:%M").to_string();
-                                let methods = result_file.analysis_methods.iter()
-                                    .map(|m| format!("{:?}", m))
-                                    .collect::<Vec<_>>()
-                                    .join(", ");
-                                
-                                // Highlight current results
-                                let is_current = state.latest_results.get(&analysis.id)
-                                    .map(|r| r.timestamp == result_file.timestamp.to_rfc3339())
-                                    .unwrap_or(false);
-                                
-                                ui.group(|ui| {
-                                    if ui.selectable_label(is_current, format!("{}\n{}", timestamp, methods)).clicked() {
-                                        // Load the selected results
-                                        let results_path = state.file_manager.analysis_handler
-                                            .get_results_file_path(&result_file.path);
-                                            
-                                        if let Ok(content) = std::fs::read_to_string(&results_path) {
-                                            if let Ok(results) = ron::from_str(&content) {
-                                                state.latest_results.insert(analysis.id.clone(), results);
-                                            }
-                                        }
-                                    }
-                                });
-                                ui.add_space(4.0);
-                            }
+            // Create a separate scope for working with metadata to avoid borrow issues
+            let analysis_id = analysis.id.clone();
+            let latest_results_timestamp = state.latest_results.get(&analysis_id)
+                .map(|r| r.timestamp.clone());
+                
+            let metadata_result = state.file_manager.analysis_handler.load_metadata(&analysis_id);
+            
+            match metadata_result {
+                Ok(metadata) => {
+                    if metadata.results_files.is_empty() {
+                        ui.centered_and_justified(|ui| {
+                            ui.label("No analysis history available");
                         });
-                });
+                    } else {
+                        egui::ScrollArea::vertical()
+                            .max_height(150.0) // Fixed max height for history section
+                            .show(ui, |ui| {
+                                // Table-like layout for history items
+                                ui.horizontal(|ui| {
+                                    ui.strong("Date & Time");
+                                    ui.add_space(20.0);
+                                    ui.strong("Methods Used");
+                                    ui.add_space(20.0);
+                                    ui.strong("Actions");
+                                });
+                                
+                                ui.separator();
+                                
+                                for result_file in metadata.results_files.iter().rev() {
+                                    let timestamp = result_file.timestamp.format("%Y-%m-%d %H:%M").to_string();
+                                    let methods = result_file.analysis_methods.iter()
+                                        .map(|m| format!("{:?}", m))
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
+                                    
+                                    // Highlight current results
+                                    let is_current = latest_results_timestamp.as_ref()
+                                        .map(|t| t == &result_file.timestamp.to_rfc3339())
+                                        .unwrap_or(false);
+                                    
+                                    let text_color = if is_current { 
+                                        egui::Color32::from_rgb(100, 200, 100) 
+                                    } else { 
+                                        ui.style().visuals.text_color() 
+                                    };
+                                    
+                                    ui.horizontal(|ui| {
+                                        ui.colored_label(text_color, timestamp);
+                                        ui.add_space(20.0);
+                                        ui.colored_label(text_color, methods);
+                                        
+                                        // Use all remaining space
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            if !is_current {
+                                                if ui.button("Load").clicked() {
+                                                    // Load the selected results
+                                                    let results_path = state.file_manager.analysis_handler
+                                                        .get_results_file_path(&result_file.path);
+                                                        
+                                                    if let Ok(content) = std::fs::read_to_string(&results_path) {
+                                                        if let Ok(results) = ron::from_str(&content) {
+                                                            state.latest_results.insert(analysis_id.clone(), results);
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                ui.label("Current");
+                                            }
+                                        });
+                                    });
+                                    
+                                    ui.separator();
+                                }
+                            });
+                    }
+                },
+                Err(_) => {
+                    ui.centered_and_justified(|ui| {
+                        ui.label("Run analysis to create history");
+                    });
+                }
             }
         });
     });
