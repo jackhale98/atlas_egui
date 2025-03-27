@@ -69,6 +69,9 @@ pub fn show_components_view(ui: &mut egui::Ui, state: &mut AppState) {
                                     }
 
                                     if ui.button("🔍 Show All Mates").clicked() {
+                                        state.mate_state.filter = Some(crate::state::mate_state::MateFilter::Component(
+                                            component.name.clone()
+                                        ));
                                         state.current_screen = Screen::Mates;
                                         ui.close_menu();
                                     }
@@ -171,6 +174,10 @@ pub fn show_components_view(ui: &mut egui::Ui, state: &mut AppState) {
                                             }
 
                                             if ui.button("🔍 Show Feature Mates").clicked() {
+                                                state.mate_state.filter = Some(crate::state::mate_state::MateFilter::Feature(
+                                                    component.name.clone(), 
+                                                    feature.name.clone()
+                                                ));
                                                 state.current_screen = Screen::Mates;
                                                 ui.close_menu();
                                             }

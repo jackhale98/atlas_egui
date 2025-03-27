@@ -8,6 +8,9 @@ use crate::config::mate::Mate;
 use crate::analysis::{StackupAnalysis, AnalysisResults};
 use crate::file::FileManager;
 use crate::analysis::stackup::{AnalysisMethod, MonteCarloSettings};
+use crate::state::mate_state::MateState;
+
+pub mod mate_state;
 
 // Core dialog tracking
 #[derive(Debug, Clone)]
@@ -127,6 +130,8 @@ pub struct AppState {
     pub selected_feature: Option<usize>, 
     pub selected_mate: Option<usize>,
     pub selected_analysis: Option<usize>,
+
+    pub mate_state: mate_state::MateState,
 }
 
 impl AppState {
@@ -137,6 +142,7 @@ impl AppState {
             components: Vec::new(),
             mates: Vec::new(),
             mate_graph: petgraph::Graph::new(),
+            mate_state: mate_state::MateState::default(),
             analyses: Vec::new(),
             latest_results: HashMap::new(),
             current_screen: Screen::Project,
@@ -193,6 +199,10 @@ impl AppState {
                 );
             }
         }
+    }
+    pub fn update_mate_state(&mut self) {
+        self.mate_state.mates = self.mates.clone();
+        self.mate_state.update_dependency_graph(&self.components);
     }
 }
 

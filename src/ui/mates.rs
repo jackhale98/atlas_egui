@@ -2,8 +2,12 @@
 use eframe::egui;
 use crate::state::{AppState, DialogState, Screen};
 use crate::utils::find_feature;
+use crate::config::Mate;
 
 pub fn show_mates_view(ui: &mut egui::Ui, state: &mut AppState) {
+    // Update the mate state first
+    state.update_mate_state();
+    
     let available_size = ui.available_size();
 
     egui::Grid::new("mates_grid")
@@ -15,8 +19,28 @@ pub fn show_mates_view(ui: &mut egui::Ui, state: &mut AppState) {
                 ui.set_min_width(available_size.x * 0.4);
                 ui.set_min_height(available_size.y);
                 
-                // Header with potential filter info
-                ui.heading("Mates");
+                // Header with filter info
+                ui.horizontal(|ui| {
+                    ui.heading("Mates");
+                    
+                    // Add filter information and clear button
+                    if let Some(filter) = &state.mate_state.filter {
+                        ui.separator();
+                        match filter {
+                            crate::state::mate_state::MateFilter::Component(name) => {
+                                ui.label(format!("Filtered by component: {}", name));
+                            },
+                            crate::state::mate_state::MateFilter::Feature(comp, feat) => {
+                                ui.label(format!("Filtered by feature: {}.{}", comp, feat));
+                            }
+                        }
+                        
+                        if ui.button("❌ Clear").clicked() {
+                            state.mate_state.filter = None;
+                        }
+                    }
+                });
+                
                 if !state.components.is_empty() {
                     if ui.button("➕ Add Mate").clicked() {
                         state.current_dialog = DialogState::NewMate {
@@ -32,11 +56,23 @@ pub fn show_mates_view(ui: &mut egui::Ui, state: &mut AppState) {
                 ui.separator();
                 ui.add_space(8.0);
 
+                // Get the filtered mate IDs
+                let filtered_mate_ids: Vec<String> = state.mate_state.filtered_mates()
+                    .iter()
+                    .map(|mate| mate.id.clone())
+                    .collect();
+                
                 egui::ScrollArea::vertical()
                     .id_source("mates_list_scroll")
                     .show(ui, |ui| {
+                        // Iterate through all mates but only show filtered ones
                         let mates = state.mates.clone(); // Clone to avoid borrow checker issues
                         for (index, mate) in mates.iter().enumerate() {
+                            // Skip if not in filtered list
+                            if !filtered_mate_ids.contains(&mate.id) {
+                                continue;
+                            }
+                            
                             let is_selected = state.selected_mate == Some(index);
                             let feature_a = find_feature(&state.components, &mate.component_a, &mate.feature_a);
                             let feature_b = find_feature(&state.components, &mate.component_b, &mate.feature_b);
