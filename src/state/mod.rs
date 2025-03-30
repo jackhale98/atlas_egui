@@ -136,6 +136,8 @@ pub struct AppState {
 
     pub dependency_map_cache: Option<HashMap<((String, String), (String, String)), usize>>,
     pub dependency_map_cache_dirty: bool,
+
+    pub git_control_state: Option<crate::ui::git_control::GitControlState>,
 }
 
 impl AppState {
@@ -161,6 +163,8 @@ impl AppState {
 
             dependency_map_cache: None,
             dependency_map_cache_dirty: true,
+
+            git_control_state: None,
         }
     }
 
