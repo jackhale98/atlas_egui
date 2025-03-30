@@ -174,6 +174,9 @@ impl AppState {
             &self.components,
             &self.analyses
         )?;
+        
+        // Mark the dependency cache as dirty after saving
+        self.mark_dependency_cache_dirty();
 
         Ok(())
     }
@@ -210,6 +213,13 @@ impl AppState {
     pub fn update_mate_state(&mut self) {
         self.mate_state.mates = self.mates.clone();
         self.mate_state.update_dependency_graph(&self.components);
+    }
+    pub fn mark_dependency_cache_dirty(&mut self) {
+        self.dependency_map_cache_dirty = true;
+    }
+    pub fn update_dependencies(&mut self) {
+        self.update_mate_graph();
+        self.mark_dependency_cache_dirty();
     }
 }
 

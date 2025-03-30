@@ -187,22 +187,21 @@ pub fn show_components_view(ui: &mut egui::Ui, state: &mut AppState) {
                                             let delete_clicked = ui.button(
                                                 egui::RichText::new("🗑 Delete").color(egui::Color32::RED)
                                             ).clicked();
-
+                                            
                                             if delete_clicked {
                                                 let state_ptr = state as *mut AppState;
                                                 unsafe {
-                                                    if let Some(component) = (*state_ptr).components.get_mut(selected_idx) {
-                                                        component.features.remove(index);
-                                                        
-                                                        if component.features.is_empty() {
-                                                            (*state_ptr).selected_feature = None;
-                                                        } else if index >= component.features.len() {
-                                                            (*state_ptr).selected_feature = Some(component.features.len() - 1);
-                                                        }
-
-                                                        if let Err(e) = (*state_ptr).save_project() {
-                                                            (*state_ptr).error_message = Some(e.to_string());
-                                                        }
+                                                    (*state_ptr).mates.remove(index);
+                                                    (*state_ptr).update_dependencies(); // Update to use the combined function
+                                                    
+                                                    if (*state_ptr).mates.is_empty() {
+                                                        (*state_ptr).selected_mate = None;
+                                                    } else if index >= (*state_ptr).mates.len() {
+                                                        (*state_ptr).selected_mate = Some((*state_ptr).mates.len() - 1);
+                                                    }
+                                            
+                                                    if let Err(e) = (*state_ptr).save_project() {
+                                                        (*state_ptr).error_message = Some(e.to_string());
                                                     }
                                                 }
                                                 ui.close_menu();

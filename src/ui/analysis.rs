@@ -170,6 +170,7 @@ fn show_analysis_list(ui: &mut egui::Ui, state: &mut AppState) {
 
                             if ui.button(egui::RichText::new("🗑 Delete").color(egui::Color32::RED)).clicked() {
                                 state.analyses.remove(index);
+                                state.mark_dependency_cache_dirty(); // Add this line
                                 if state.analyses.is_empty() {
                                     state.selected_analysis = None;
                                 } else if index >= state.analyses.len() {
@@ -306,6 +307,7 @@ fn show_analysis_details(
                                     if ui.small_button("🗑").clicked() {
                                         if let Some(analysis) = state.analyses.get_mut(analysis_index) {
                                             analysis.contributions.remove(idx);
+                                            state.mark_dependency_cache_dirty(); // Add this line
                                             // Save changes
                                             if let Err(e) = state.save_project() {
                                                 state.error_message = Some(e.to_string());

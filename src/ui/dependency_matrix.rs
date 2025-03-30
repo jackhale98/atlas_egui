@@ -5,6 +5,11 @@ use std::collections::{HashMap, HashSet};
 use crate::state::{AppState, Screen};
 use crate::config::{Component, Feature};
 
+// Helper function to format component.feature - defined at module level
+fn format_feature_text(comp: &str, feat: &str) -> String {
+    format!("{}.{}", comp, feat)
+}
+
 pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
     ui.heading("Component Feature Dependencies");
     
@@ -39,16 +44,42 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
     
     // Calculate cell size and header sizes
     let cell_size = 32.0;
-    let header_width = 150.0;
-    let header_height = 80.0;
+    let base_header_width = 200.0;  // Increased for better text display
+    let header_height = 120.0;      // Increased for header height
+    
+    // Get the longest text to calculate header width
+    let longest_text_width = all_features.iter()
+        .map(|(c, f)| format_feature_text(c, f))
+        .fold(0.0_f32, |max_width, text| {
+            let galley = ui.fonts(|f| f.layout_no_wrap(
+                text, 
+                egui::FontId::default(), 
+                ui.style().visuals.text_color()
+            ));
+            max_width.max(galley.size().x)
+        });
+    
+    // Add padding and set minimum width for better display
+    let header_width = (longest_text_width + 30.0_f32).max(base_header_width);
     
     let matrix_width = header_width + (all_features.len() as f32 * cell_size);
     let matrix_height = header_height + (all_features.len() as f32 * cell_size);
     
-    // Helper to format component.feature
-    let format_feature = |comp: &str, feat: &str| -> String {
-        format!("{}.{}", comp, feat)
-    };
+    // Build or refresh the dependency map only when needed
+    if state.dependency_map_cache.is_none() || state.dependency_map_cache_dirty {
+        state.dependency_map_cache = Some(build_dependency_map(state));
+        state.dependency_map_cache_dirty = false;
+    }
+    
+    // Clone the dependency map to avoid borrowing issues
+    let dependency_map = state.dependency_map_cache.as_ref().unwrap().clone();
+    
+    // Create a vector of clickable cells that we'll populate while drawing
+    let mut clickable_cells: Vec<(egui::Rect, String, String, String, String)> = Vec::new();
+    
+    // Track if we need to show the modal
+    let mut show_dependency_modal = false;
+    let mut modal_info: Option<(String, String, String, String)> = None;
     
     // Outer frame with scrolling
     egui::Frame::none()
@@ -120,7 +151,7 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
                             let text_pos = rect.left_top() + 
                                 egui::Vec2::new(10.0, header_height + i as f32 * cell_size + cell_size / 2.0);
                             
-                            let header_text = format_feature(comp_name, feat_name);
+                            let header_text = format_feature_text(comp_name, feat_name);
                             let header_rect = egui::Rect::from_min_size(
                                 rect.left_top() + egui::Vec2::new(0.0, header_height + i as f32 * cell_size),
                                 egui::Vec2::new(header_width, cell_size)
@@ -148,18 +179,21 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
                                     ui.style().visuals.widgets.hovered.bg_fill
                                 );
                             }
+                            
+                            // Draw the full row text
+                            let row_text = format_feature_text(comp_name, feat_name);
+                            
                             painter.text(
                                 text_pos,
                                 egui::Align2::LEFT_CENTER,
-                                header_text,
+                                row_text,
                                 egui::FontId::default(),
                                 ui.style().visuals.text_color()
                             );
                         }
                         
-                        // Draw column headers (horizontal)
+                        // Draw column headers (horizontal) with properly rotated text
                         for (i, (comp_name, feat_name)) in all_features.iter().enumerate() {
-                            let header_text = format_feature(comp_name, feat_name);
                             let header_rect = egui::Rect::from_min_size(
                                 rect.left_top() + egui::Vec2::new(header_width + i as f32 * cell_size, 0.0),
                                 egui::Vec2::new(cell_size, header_height)
@@ -167,7 +201,6 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
                             
                             // Check for clicks on column headers
                             if response.clicked() && header_rect.contains(response.interact_pointer_pos().unwrap_or_default()) {
-                                // Find the component and feature indices to navigate to
                                 if let Some(comp_idx) = state.components.iter().position(|c| c.name == *comp_name) {
                                     state.selected_component = Some(comp_idx);
                                     if let Some(component) = state.components.get(comp_idx) {
@@ -179,7 +212,7 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
                                 }
                             }
                             
-                            // Draw header text with hover effect
+                            // Draw header background with hover effect
                             if header_rect.contains(ui.ctx().input(|i| i.pointer.hover_pos().unwrap_or_default())) {
                                 painter.rect_filled(
                                     header_rect,
@@ -188,46 +221,50 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
                                 );
                             }
                             
-                            // Draw text for column headers - rotated
-                            let center = header_rect.center();
+                            // Simulate rotated text by drawing it in two parts
+                            let center_x = header_rect.center().x;
                             
-                            // Split the text into parts
-                            let parts: Vec<&str> = header_text.split('.').collect();
-                            if parts.len() == 2 {
-                                // Draw component name and feature name separately for better readability
-                                painter.text(
-                                    center + egui::Vec2::new(0.0, -15.0),
-                                    egui::Align2::CENTER_CENTER,
-                                    parts[0],
-                                    egui::FontId::proportional(10.0),
-                                    ui.style().visuals.text_color()
-                                );
-                                
-                                painter.text(
-                                    center + egui::Vec2::new(0.0, 5.0),
-                                    egui::Align2::CENTER_CENTER,
-                                    parts[1],
-                                    egui::FontId::proportional(10.0),
-                                    ui.style().visuals.text_color()
-                                );
-                            } else {
-                                // Fallback for unexpected format
-                                painter.text(
-                                    center,
-                                    egui::Align2::CENTER_CENTER,
-                                    &header_text,
-                                    egui::FontId::proportional(10.0),
-                                    ui.style().visuals.text_color()
-                                );
+                            // 1. Draw component name at top
+                            painter.text(
+                                egui::Pos2::new(center_x, header_rect.min.y + 20.0),
+                                egui::Align2::CENTER_CENTER,
+                                comp_name,
+                                egui::FontId::proportional(10.0),
+                                ui.style().visuals.text_color()
+                            );
+                            
+                            // 2. Calculate dimensions for rotated feature name
+                            let feature_text_width = ui.fonts(|f| f.layout_no_wrap(
+                                feat_name.clone(), 
+                                egui::FontId::proportional(10.0), 
+                                ui.style().visuals.text_color()
+                            )).size().x;
+                            
+                            // Draw a line to represent the text path
+                            let start_y = header_rect.min.y + 40.0;
+                            let end_y = start_y + feature_text_width.min(header_height - 50.0);
+                            
+                            // Draw feature name label at approximate angle
+                            for (j, ch) in feat_name.chars().enumerate() {
+                                let num_chars = feat_name.chars().count();
+                                if j < 10 { // Limit to avoid overflow
+                                    // Calculate position along the line
+                                    let t = j as f32 / (num_chars - 1).max(1) as f32;
+                                    let x = center_x;
+                                    let y = start_y + t * (end_y - start_y);
+                                    
+                                    painter.text(
+                                        egui::Pos2::new(x, y),
+                                        egui::Align2::CENTER_CENTER,
+                                        ch.to_string(),
+                                        egui::FontId::proportional(10.0),
+                                        ui.style().visuals.text_color()
+                                    );
+                                }
                             }
                         }
                         
                         // Draw matrix cells with dependency counts
-                        let dependency_map = build_dependency_map(state);
-                        
-                        // Collect cells to potentially handle clicks
-                        let mut clickable_cells = Vec::new();
-                        
                         for (row, (row_comp, row_feat)) in all_features.iter().enumerate() {
                             for (col, (col_comp, col_feat)) in all_features.iter().enumerate() {
                                 let cell_rect = egui::Rect::from_min_size(
@@ -270,31 +307,115 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
                                         egui::Color32::WHITE
                                     );
                                     
-                                    // Store this cell for potential clicks
-                                    clickable_cells.push((
-                                        cell_rect,
-                                        row_comp.clone(),
-                                        row_feat.clone(),
-                                        col_comp.clone(),
-                                        col_feat.clone()
-                                    ));
-                                }
-                            }
-                        }
-                        
-                        // Now handle clicks - this is outside the loop so we don't have multiple mutable borrows
-                        if response.clicked() {
-                            if let Some(click_pos) = response.interact_pointer_pos() {
-                                for (cell_rect, row_comp, row_feat, col_comp, col_feat) in clickable_cells {
-                                    if cell_rect.contains(click_pos) {
-                                        handle_dependency_click(ui.ctx(), state, &row_comp, &row_feat, &col_comp, &col_feat);
-                                        break;
+                                    // Check for click on this cell
+                                    if response.clicked() && cell_rect.contains(response.interact_pointer_pos().unwrap_or_default()) {
+                                        show_dependency_modal = true;
+                                        modal_info = Some((
+                                            row_comp.clone(), 
+                                            row_feat.clone(), 
+                                            col_comp.clone(), 
+                                            col_feat.clone()
+                                        ));
                                     }
                                 }
                             }
                         }
                     }
                 });
+        });
+    
+    // Show modal if needed - outside of painter context to avoid borrowing issues
+    if show_dependency_modal {
+        if let Some((row_comp, row_feat, col_comp, col_feat)) = modal_info {
+            show_dependency_details_modal(
+                ui.ctx(),
+                state,
+                &row_comp,
+                &row_feat,
+                &col_comp,
+                &col_feat
+            );
+        }
+    }
+}
+
+// Moved to a separate function for cleaner organization
+fn show_dependency_details_modal(
+    ctx: &egui::Context,
+    state: &mut AppState,
+    row_comp: &str,
+    row_feat: &str,
+    col_comp: &str,
+    col_feat: &str
+) {
+    // Find all mates and analyses that involve these two features
+    let mut options = Vec::new();
+    
+    // Check for direct mates
+    for (idx, mate) in state.mates.iter().enumerate() {
+        if (mate.component_a == row_comp && mate.feature_a == row_feat &&
+            mate.component_b == col_comp && mate.feature_b == col_feat) ||
+           (mate.component_a == col_comp && mate.feature_a == col_feat &&
+            mate.component_b == row_comp && mate.feature_b == row_feat) {
+            options.push((format!("Mate: {}.{} ↔ {}.{}", 
+                          mate.component_a, mate.feature_a, 
+                          mate.component_b, mate.feature_b),
+                         DependencyAction::GotoMate(idx)));
+        }
+    }
+    
+    // Check for analyses that include both features
+    for (idx, analysis) in state.analyses.iter().enumerate() {
+        let row_found = analysis.contributions.iter().any(|c| 
+            c.component_id == row_comp && c.feature_id == row_feat);
+        let col_found = analysis.contributions.iter().any(|c| 
+            c.component_id == col_comp && c.feature_id == col_feat);
+        
+        if row_found && col_found {
+            options.push((format!("Analysis: {}", analysis.name),
+                         DependencyAction::GotoAnalysis(idx)));
+        }
+    }
+    
+    // Use modal dialog to ensure it stays visible
+    let modal_id = egui::Id::new("dependency_relations_modal");
+    
+    egui::Window::new(format!("Relations: {}.{} ↔ {}.{}", row_comp, row_feat, col_comp, col_feat))
+        .id(modal_id)
+        .collapsible(false)
+        .default_pos([200.0, 200.0])
+        .default_size([300.0, 400.0])
+        .show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.heading("Related Items");
+                ui.separator();
+                
+                if options.is_empty() {
+                    ui.label("No direct relations found.");
+                } else {
+                    for (label, action) in options {
+                        if ui.button(label).clicked() {
+                            match action {
+                                DependencyAction::GotoMate(idx) => {
+                                    state.selected_mate = Some(idx);
+                                    state.current_screen = Screen::Mates;
+                                    ui.ctx().memory_mut(|mem| mem.data.remove::<bool>(modal_id));
+                                },
+                                DependencyAction::GotoAnalysis(idx) => {
+                                    state.selected_analysis = Some(idx);
+                                    state.current_screen = Screen::Analysis;
+                                    ui.ctx().memory_mut(|mem| mem.data.remove::<bool>(modal_id));
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                ui.add_space(10.0);
+                if ui.button("Close").clicked() {
+                    ui.ctx().memory_mut(|mem| mem.data.remove::<bool>(modal_id));
+                }
+            });
         });
 }
 
@@ -334,72 +455,6 @@ fn build_dependency_map(state: &AppState) -> HashMap<((String, String), (String,
     }
     
     dependency_map
-}
-
-// Helper function to handle clicks on dependency cells
-fn handle_dependency_click(
-    ctx: &egui::Context,
-    state: &mut AppState,
-    row_comp: &str,
-    row_feat: &str,
-    col_comp: &str,
-    col_feat: &str
-) {
-    // Find all mates and analyses that involve these two features
-    let mut options = Vec::new();
-    
-    // Check for direct mates
-    for (idx, mate) in state.mates.iter().enumerate() {
-        if (mate.component_a == row_comp && mate.feature_a == row_feat &&
-            mate.component_b == col_comp && mate.feature_b == col_feat) ||
-           (mate.component_a == col_comp && mate.feature_a == col_feat &&
-            mate.component_b == row_comp && mate.feature_b == row_feat) {
-            options.push((format!("Mate: {}.{} ↔ {}.{}", 
-                          mate.component_a, mate.feature_a, 
-                          mate.component_b, mate.feature_b),
-                         DependencyAction::GotoMate(idx)));
-        }
-    }
-    
-    // Check for analyses that include both features
-    for (idx, analysis) in state.analyses.iter().enumerate() {
-        let row_found = analysis.contributions.iter().any(|c| 
-            c.component_id == row_comp && c.feature_id == row_feat);
-        let col_found = analysis.contributions.iter().any(|c| 
-            c.component_id == col_comp && c.feature_id == col_feat);
-        
-        if row_found && col_found {
-            options.push((format!("Analysis: {}", analysis.name),
-                         DependencyAction::GotoAnalysis(idx)));
-        }
-    }
-    
-    // Show context menu with options
-    if !options.is_empty() {
-        egui::Area::new("dependency_context_menu")
-            .order(egui::Order::Foreground)
-            .fixed_pos(ctx.input(|i| i.pointer.hover_pos().unwrap_or_default()))
-            .show(ctx, |ui| {
-                egui::Frame::popup(ui.style())
-                    .show(ui, |ui| {
-                        for (label, action) in options {
-                            if ui.button(label).clicked() {
-                                match action {
-                                    DependencyAction::GotoMate(idx) => {
-                                        state.selected_mate = Some(idx);
-                                        state.current_screen = Screen::Mates;
-                                    },
-                                    DependencyAction::GotoAnalysis(idx) => {
-                                        state.selected_analysis = Some(idx);
-                                        state.current_screen = Screen::Analysis;
-                                    }
-                                }
-                                ui.close_menu();
-                            }
-                        }
-                    });
-            });
-    }
 }
 
 // Action to take when a dependency cell is clicked

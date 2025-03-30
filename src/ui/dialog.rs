@@ -151,7 +151,8 @@ impl DialogManager {
                     || { state.current_dialog = DialogState::None }
                 ) {
                     if changed {
-                        state.update_mate_graph();
+                        // Update to use update_dependencies() which handles both mate graph and dependency cache
+                        state.update_dependencies(); 
                         if let Err(e) = state.save_project() {
                             state.error_message = Some(e.to_string());
                         }
@@ -184,6 +185,9 @@ impl DialogManager {
                             }
                         }
                         
+                        // Mark dependency cache as dirty when analyses change
+                        state.mark_dependency_cache_dirty();
+                        
                         if let Err(e) = state.save_project() {
                             state.error_message = Some(e.to_string());
                         }
@@ -208,6 +212,9 @@ impl DialogManager {
                     || { state.current_dialog = DialogState::None }
                 ) {
                     if changed {
+                        // Mark dependency cache as dirty when analysis contributions change
+                        state.mark_dependency_cache_dirty();
+                        
                         if let Err(e) = state.save_project() {
                             state.error_message = Some(e.to_string());
                         }
