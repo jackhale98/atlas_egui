@@ -1,7 +1,8 @@
 // src/ui/dependency_matrix.rs
 use eframe::egui;
 use petgraph::graph::{NodeIndex, EdgeIndex};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::collections::HashSet;
 use crate::state::{AppState, Screen};
 use crate::config::{Component, Feature};
 
@@ -39,13 +40,42 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
         return;
     }
     
-    // Create a scrollable matrix with frozen headers
-    let table_size = egui::Vec2::new(ui.available_width(), ui.available_height() - 40.0);
+    // Calculate cell sizes and header sizes
+    // First, measure each component and feature name to determine optimal cell widths
+    let mut column_widths: Vec<f32> = Vec::with_capacity(all_features.len());
     
-    // Calculate cell size and header sizes
-    let cell_size = 32.0;
-    let base_header_width = 200.0;  // Increased for better text display
-    let header_height = 120.0;      // Increased for header height
+    for (comp_name, feat_name) in &all_features {
+        // Measure component name width
+        let comp_width = ui.fonts(|f| {
+            f.layout_no_wrap(
+                comp_name.clone(), 
+                egui::FontId::default(), 
+                ui.style().visuals.text_color()
+            ).size().x
+        }) + 20.0; // Add padding
+        
+        // Measure feature name width
+        let feat_width = ui.fonts(|f| {
+            f.layout_no_wrap(
+                feat_name.clone(), 
+                egui::FontId::default(), 
+                ui.style().visuals.text_color()
+            ).size().x
+        }) + 20.0; // Add padding
+        
+        // Use the maximum width needed for this column
+        let width = comp_width.max(feat_width);
+        column_widths.push(width);
+    }
+    
+    // Ensure a minimum width for each column
+    const MIN_COLUMN_WIDTH: f32 = 50.0;
+    for width in &mut column_widths {
+        *width = width.max(MIN_COLUMN_WIDTH);
+    }
+    
+    let base_header_width = 200.0;  // Width for row headers
+    let column_header_height = 120.0; // Height for column headers
     
     // Get the longest text to calculate header width
     let longest_text_width = all_features.iter()
@@ -62,8 +92,9 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
     // Add padding and set minimum width for better display
     let header_width = (longest_text_width + 30.0_f32).max(base_header_width);
     
-    let matrix_width = header_width + (all_features.len() as f32 * cell_size);
-    let matrix_height = header_height + (all_features.len() as f32 * cell_size);
+    // Calculate matrix dimensions using dynamic column widths
+    let matrix_width = header_width + column_widths.iter().sum::<f32>();
+    let matrix_height = column_header_height + (all_features.len() as f32 * 40.0); // Fixed row height of 40px
     
     // Build or refresh the dependency map only when needed
     if state.dependency_map_cache.is_none() || state.dependency_map_cache_dirty {
@@ -74,12 +105,9 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
     // Clone the dependency map to avoid borrowing issues
     let dependency_map = state.dependency_map_cache.as_ref().unwrap().clone();
     
-    // Create a vector of clickable cells that we'll populate while drawing
-    let mut clickable_cells: Vec<(egui::Rect, String, String, String, String)> = Vec::new();
-    
-    // Track if we need to show the modal
-    let mut show_dependency_modal = false;
-    let mut modal_info: Option<(String, String, String, String)> = None;
+    // Use persistent IDs for modal state
+    let modal_open_id = egui::Id::new("dependency_modal_open");
+    let modal_info_id = egui::Id::new("dependency_modal_info");
     
     // Outer frame with scrolling
     egui::Frame::none()
@@ -107,33 +135,42 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
                             ui.style().visuals.window_fill
                         );
                         
-                        // Draw grid lines
+                        // Draw grid lines with dynamic column widths
                         let grid_color = ui.style().visuals.widgets.noninteractive.bg_stroke.color;
+                        
+                        // Draw horizontal grid lines
+                        let row_height = 40.0;
                         for i in 0..=all_features.len() {
-                            // Horizontal lines
                             painter.line_segment(
                                 [
-                                    rect.left_top() + egui::Vec2::new(0.0, header_height + i as f32 * cell_size),
-                                    rect.right_top() + egui::Vec2::new(0.0, header_height + i as f32 * cell_size)
-                                ],
-                                ui.style().visuals.widgets.noninteractive.bg_stroke
-                            );
-                            
-                            // Vertical lines
-                            painter.line_segment(
-                                [
-                                    rect.left_top() + egui::Vec2::new(header_width + i as f32 * cell_size, 0.0),
-                                    rect.left_bottom() + egui::Vec2::new(header_width + i as f32 * cell_size, 0.0)
+                                    rect.left_top() + egui::Vec2::new(0.0, column_header_height + i as f32 * row_height),
+                                    rect.right_top() + egui::Vec2::new(0.0, column_header_height + i as f32 * row_height)
                                 ],
                                 ui.style().visuals.widgets.noninteractive.bg_stroke
                             );
                         }
                         
-                        // Draw separator between headers and cells
+                        // Draw vertical grid lines
+                        let mut current_x = header_width;
+                        for i in 0..=all_features.len() {
+                            painter.line_segment(
+                                [
+                                    rect.left_top() + egui::Vec2::new(current_x, 0.0),
+                                    rect.left_bottom() + egui::Vec2::new(current_x, 0.0)
+                                ],
+                                ui.style().visuals.widgets.noninteractive.bg_stroke
+                            );
+                            
+                            if i < all_features.len() {
+                                current_x += column_widths[i];
+                            }
+                        }
+                        
+                        // Draw separator between headers and cells - use dynamic width
                         painter.line_segment(
                             [
-                                rect.left_top() + egui::Vec2::new(0.0, header_height),
-                                rect.right_top() + egui::Vec2::new(0.0, header_height)
+                                rect.left_top() + egui::Vec2::new(0.0, column_header_height),
+                                rect.right_top() + egui::Vec2::new(0.0, column_header_height)
                             ],
                             egui::Stroke::new(2.0, ui.style().visuals.widgets.active.bg_stroke.color)
                         );
@@ -148,13 +185,14 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
                         
                         // Draw row headers (vertical)
                         for (i, (comp_name, feat_name)) in all_features.iter().enumerate() {
+                            let row_height = 40.0; // Fixed row height
                             let text_pos = rect.left_top() + 
-                                egui::Vec2::new(10.0, header_height + i as f32 * cell_size + cell_size / 2.0);
+                                egui::Vec2::new(10.0, column_header_height + i as f32 * row_height + row_height / 2.0);
                             
                             let header_text = format_feature_text(comp_name, feat_name);
                             let header_rect = egui::Rect::from_min_size(
-                                rect.left_top() + egui::Vec2::new(0.0, header_height + i as f32 * cell_size),
-                                egui::Vec2::new(header_width, cell_size)
+                                rect.left_top() + egui::Vec2::new(0.0, column_header_height + i as f32 * row_height),
+                                egui::Vec2::new(header_width, row_height)
                             );
                             
                             // Check for clicks on row headers
@@ -192,11 +230,15 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
                             );
                         }
                         
-                        // Draw column headers (horizontal) with properly rotated text
+                        // Draw column headers (horizontal) with dynamic widths
+                        let mut current_x = header_width;
                         for (i, (comp_name, feat_name)) in all_features.iter().enumerate() {
+                            let column_width = column_widths[i];
+                            
+                            // Calculate header cell
                             let header_rect = egui::Rect::from_min_size(
-                                rect.left_top() + egui::Vec2::new(header_width + i as f32 * cell_size, 0.0),
-                                egui::Vec2::new(cell_size, header_height)
+                                rect.left_top() + egui::Vec2::new(current_x, 0.0),
+                                egui::Vec2::new(column_width, column_header_height)
                             );
                             
                             // Check for clicks on column headers
@@ -221,65 +263,82 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
                                 );
                             }
                             
-                            // Simulate rotated text by drawing it in two parts
-                            let center_x = header_rect.center().x;
+                            // Draw component name at the top
+                            let comp_pos = egui::Pos2::new(
+                                header_rect.center().x, 
+                                header_rect.min.y + 30.0
+                            );
                             
-                            // 1. Draw component name at top
+                            // Show full component name without truncation
                             painter.text(
-                                egui::Pos2::new(center_x, header_rect.min.y + 20.0),
+                                comp_pos,
                                 egui::Align2::CENTER_CENTER,
-                                comp_name,
-                                egui::FontId::proportional(10.0),
+                                comp_name.clone(),
+                                egui::FontId::default(),
                                 ui.style().visuals.text_color()
                             );
                             
-                            // 2. Calculate dimensions for rotated feature name
-                            let feature_text_width = ui.fonts(|f| f.layout_no_wrap(
-                                feat_name.clone(), 
-                                egui::FontId::proportional(10.0), 
+                            // Calculate position and text for feature
+                            let feat_pos = egui::Pos2::new(
+                                header_rect.center().x,
+                                header_rect.min.y + 80.0
+                            );
+                            
+                            // Display full feature name without truncation
+                            let display_feat = feat_name.clone();
+                            
+                            painter.text(
+                                feat_pos,
+                                egui::Align2::CENTER_CENTER,
+                                display_feat,
+                                egui::FontId::default(),
                                 ui.style().visuals.text_color()
-                            )).size().x;
+                            );
                             
-                            // Draw a line to represent the text path
-                            let start_y = header_rect.min.y + 40.0;
-                            let end_y = start_y + feature_text_width.min(header_height - 50.0);
+                            // Draw separator line between component and feature
+                            painter.line_segment(
+                                [
+                                    egui::Pos2::new(header_rect.min.x, header_rect.min.y + 55.0),
+                                    egui::Pos2::new(header_rect.max.x, header_rect.min.y + 55.0)
+                                ],
+                                egui::Stroke::new(1.0, ui.style().visuals.widgets.noninteractive.bg_stroke.color)
+                            );
                             
-                            // Draw feature name label at approximate angle
-                            for (j, ch) in feat_name.chars().enumerate() {
-                                let num_chars = feat_name.chars().count();
-                                if j < 10 { // Limit to avoid overflow
-                                    // Calculate position along the line
-                                    let t = j as f32 / (num_chars - 1).max(1) as f32;
-                                    let x = center_x;
-                                    let y = start_y + t * (end_y - start_y);
-                                    
-                                    painter.text(
-                                        egui::Pos2::new(x, y),
-                                        egui::Align2::CENTER_CENTER,
-                                        ch.to_string(),
-                                        egui::FontId::proportional(10.0),
-                                        ui.style().visuals.text_color()
-                                    );
-                                }
-                            }
+                            // Update current_x for next column
+                            current_x += column_width;
                         }
                         
-                        // Draw matrix cells with dependency counts
-                        for (row, (row_comp, row_feat)) in all_features.iter().enumerate() {
-                            for (col, (col_comp, col_feat)) in all_features.iter().enumerate() {
+                        // Draw matrix cells with dependency counts - using dynamic column widths
+                        let mut current_x = header_width;
+                        for (col, (col_comp, col_feat)) in all_features.iter().enumerate() {
+                            let column_width = column_widths[col];
+                            
+                            for (row, (row_comp, row_feat)) in all_features.iter().enumerate() {
+                                let row_height = 40.0; // Fixed row height
                                 let cell_rect = egui::Rect::from_min_size(
                                     rect.left_top() + egui::Vec2::new(
-                                        header_width + col as f32 * cell_size,
-                                        header_height + row as f32 * cell_size
+                                        current_x,
+                                        column_header_height + row as f32 * row_height
                                     ),
-                                    egui::Vec2::new(cell_size, cell_size)
+                                    egui::Vec2::new(column_width, row_height)
                                 );
                                 
-                                // Get dependency count
-                                let key1 = ((row_comp.clone(), row_feat.clone()), (col_comp.clone(), col_feat.clone()));
-                                let key2 = ((col_comp.clone(), col_feat.clone()), (row_comp.clone(), row_feat.clone()));
+                                // Get dependency count - use consistent key ordering
+                                let (first, second) = if row_comp < col_comp || 
+                                                     (row_comp == col_comp && row_feat < col_feat) {
+                                    (
+                                        (row_comp.clone(), row_feat.clone()),
+                                        (col_comp.clone(), col_feat.clone())
+                                    )
+                                } else {
+                                    (
+                                        (col_comp.clone(), col_feat.clone()),
+                                        (row_comp.clone(), row_feat.clone())
+                                    )
+                                };
                                 
-                                let count = dependency_map.get(&key1).or_else(|| dependency_map.get(&key2)).copied().unwrap_or(0);
+                                let key = (first, second);
+                                let count = dependency_map.get(&key).copied().unwrap_or(0);
                                 
                                 // Draw cell content if there are dependencies
                                 if count > 0 {
@@ -309,58 +368,66 @@ pub fn show_dependency_matrix(ui: &mut egui::Ui, state: &mut AppState) {
                                     
                                     // Check for click on this cell
                                     if response.clicked() && cell_rect.contains(response.interact_pointer_pos().unwrap_or_default()) {
-                                        show_dependency_modal = true;
-                                        modal_info = Some((
-                                            row_comp.clone(), 
-                                            row_feat.clone(), 
-                                            col_comp.clone(), 
-                                            col_feat.clone()
-                                        ));
+                                        // Store modal state in egui memory
+                                        ui.ctx().memory_mut(|mem| {
+                                            mem.data.insert_temp(modal_open_id, true);
+                                            mem.data.insert_temp(
+                                                modal_info_id, 
+                                                (row_comp.clone(), row_feat.clone(), col_comp.clone(), col_feat.clone())
+                                            );
+                                        });
                                     }
                                 }
                             }
+                            
+                            // Move to next column
+                            current_x += column_width;
                         }
                     }
                 });
         });
     
-    // Show modal if needed - outside of painter context to avoid borrowing issues
-    if show_dependency_modal {
-        if let Some((row_comp, row_feat, col_comp, col_feat)) = modal_info {
-            show_dependency_details_modal(
-                ui.ctx(),
-                state,
-                &row_comp,
-                &row_feat,
-                &col_comp,
-                &col_feat
-            );
+    // Show modal if needed - use memory to persist between frames
+    let show_modal = ui.ctx().memory(|mem| mem.data.get_temp::<bool>(modal_open_id).unwrap_or(false));
+    if show_modal {
+        if let Some(modal_info) = ui.ctx().memory(|mem| 
+            mem.data.get_temp::<(String, String, String, String)>(modal_info_id)
+        ) {
+            let (row_comp, row_feat, col_comp, col_feat) = modal_info;
+            show_dependency_details_modal(ui.ctx(), state, &row_comp, &row_feat, &col_comp, &col_feat, modal_open_id);
         }
     }
 }
 
-// Moved to a separate function for cleaner organization
+// Modified to accept the modal_id param for state management
 fn show_dependency_details_modal(
     ctx: &egui::Context,
     state: &mut AppState,
     row_comp: &str,
     row_feat: &str,
     col_comp: &str,
-    col_feat: &str
+    col_feat: &str,
+    modal_open_id: egui::Id,
 ) {
     // Find all mates and analyses that involve these two features
     let mut options = Vec::new();
     
-    // Check for direct mates
+    // Check for direct mates - Fix duplicate entries issue
+    let mut seen_mate_ids = HashSet::new();
     for (idx, mate) in state.mates.iter().enumerate() {
+        // Check if this mate relates the two selected features
         if (mate.component_a == row_comp && mate.feature_a == row_feat &&
             mate.component_b == col_comp && mate.feature_b == col_feat) ||
            (mate.component_a == col_comp && mate.feature_a == col_feat &&
             mate.component_b == row_comp && mate.feature_b == row_feat) {
-            options.push((format!("Mate: {}.{} ↔ {}.{}", 
-                          mate.component_a, mate.feature_a, 
-                          mate.component_b, mate.feature_b),
-                         DependencyAction::GotoMate(idx)));
+            
+            // Only add if we haven't seen this mate before
+            if seen_mate_ids.insert(mate.id.clone()) {
+                options.push((format!("Mate: {}.{} ↔ {}.{}", 
+                            mate.component_a, mate.feature_a, 
+                            mate.component_b, mate.feature_b),
+                           DependencyAction::GotoMate(idx)));
+            }
         }
     }
     
@@ -377,43 +444,50 @@ fn show_dependency_details_modal(
         }
     }
     
-    // Use modal dialog to ensure it stays visible
+    // Generate a consistent modal ID
     let modal_id = egui::Id::new("dependency_relations_modal");
     
-    egui::Window::new(format!("Relations: {}.{} ↔ {}.{}", row_comp, row_feat, col_comp, col_feat))
+    // Use modal dialog without a header
+    egui::Window::new("") // Empty title to remove header
         .id(modal_id)
         .collapsible(false)
-        .default_pos([200.0, 200.0])
-        .default_size([300.0, 400.0])
+        .title_bar(false) // Remove title bar completely
+        .fixed_size([400.0, 300.0])
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
-                ui.heading("Related Items");
+                ui.heading(format!("Relations: {}.{} ↔ {}.{}", 
+                    row_comp, row_feat, col_comp, col_feat));
                 ui.separator();
                 
                 if options.is_empty() {
                     ui.label("No direct relations found.");
                 } else {
-                    for (label, action) in options {
-                        if ui.button(label).clicked() {
-                            match action {
-                                DependencyAction::GotoMate(idx) => {
-                                    state.selected_mate = Some(idx);
-                                    state.current_screen = Screen::Mates;
-                                    ui.ctx().memory_mut(|mem| mem.data.remove::<bool>(modal_id));
-                                },
-                                DependencyAction::GotoAnalysis(idx) => {
-                                    state.selected_analysis = Some(idx);
-                                    state.current_screen = Screen::Analysis;
-                                    ui.ctx().memory_mut(|mem| mem.data.remove::<bool>(modal_id));
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        for (label, action) in options {
+                            if ui.button(label).clicked() {
+                                match action {
+                                    DependencyAction::GotoMate(idx) => {
+                                        state.selected_mate = Some(idx);
+                                        state.current_screen = Screen::Mates;
+                                        // Close the modal by clearing memory
+                                        ctx.memory_mut(|mem| mem.data.remove::<bool>(modal_open_id));
+                                    },
+                                    DependencyAction::GotoAnalysis(idx) => {
+                                        state.selected_analysis = Some(idx);
+                                        state.current_screen = Screen::Analysis;
+                                        // Close the modal by clearing memory
+                                        ctx.memory_mut(|mem| mem.data.remove::<bool>(modal_open_id));
+                                    }
                                 }
                             }
                         }
-                    }
+                    });
                 }
                 
                 ui.add_space(10.0);
                 if ui.button("Close").clicked() {
-                    ui.ctx().memory_mut(|mem| mem.data.remove::<bool>(modal_id));
+                    // Close the modal by clearing memory
+                    ctx.memory_mut(|mem| mem.data.remove::<bool>(modal_open_id));
                 }
             });
         });
@@ -424,12 +498,23 @@ fn build_dependency_map(state: &AppState) -> HashMap<((String, String), (String,
     // Build a new map each time
     let mut dependency_map: HashMap<((String, String), (String, String)), usize> = HashMap::new();
     
-    // Add mate relationships
+    // Add mate relationships - ensure consistent key ordering
     for mate in &state.mates {
-        let key = (
-            (mate.component_a.clone(), mate.feature_a.clone()),
-            (mate.component_b.clone(), mate.feature_b.clone())
-        );
+        // Always order keys consistently to avoid duplicate entries
+        let (first, second) = if mate.component_a < mate.component_b || 
+                              (mate.component_a == mate.component_b && mate.feature_a < mate.feature_b) {
+            (
+                (mate.component_a.clone(), mate.feature_a.clone()),
+                (mate.component_b.clone(), mate.feature_b.clone())
+            )
+        } else {
+            (
+                (mate.component_b.clone(), mate.feature_b.clone()),
+                (mate.component_a.clone(), mate.feature_a.clone())
+            )
+        };
+        
+        let key = (first, second);
         *dependency_map.entry(key).or_insert(0) += 1;
     }
     
@@ -445,10 +530,21 @@ fn build_dependency_map(state: &AppState) -> HashMap<((String, String), (String,
         let features: Vec<_> = analysis_features.iter().collect();
         for i in 0..features.len() {
             for j in (i+1)..features.len() {
-                let key = (
-                    (features[i].0.clone(), features[i].1.clone()),
-                    (features[j].0.clone(), features[j].1.clone())
-                );
+                // Order keys consistently
+                let (first, second) = if features[i].0 < features[j].0 || 
+                                     (features[i].0 == features[j].0 && features[i].1 < features[j].1) {
+                    (
+                        (features[i].0.clone(), features[i].1.clone()),
+                        (features[j].0.clone(), features[j].1.clone())
+                    )
+                } else {
+                    (
+                        (features[j].0.clone(), features[j].1.clone()),
+                        (features[i].0.clone(), features[i].1.clone())
+                    )
+                };
+                
+                let key = (first, second);
                 *dependency_map.entry(key).or_insert(0) += 1;
             }
         }
