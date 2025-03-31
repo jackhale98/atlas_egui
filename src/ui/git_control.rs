@@ -15,6 +15,8 @@ pub struct GitControlState {
     remote_url: String,
     remote_name: String,
     show_diff_panel: bool,
+    view_mode: ViewMode,
+    selected_commit: Option<GitCommitInfo>,
 }
 
 // Implement Debug for GitControlState
@@ -25,17 +27,44 @@ impl fmt::Debug for GitControlState {
             .field("remote_url", &self.remote_url)
             .field("remote_name", &self.remote_name)
             .field("show_diff_panel", &self.show_diff_panel)
+            .field("view_mode", &self.view_mode)
             .finish()
     }
+}
+
+// Different view modes for the diff panel
+#[derive(Debug, Clone, PartialEq)]
+pub enum ViewMode {
+    FileDiff,
+    CommitInfo,
+    BranchManagement,
+}
+
+impl Default for ViewMode {
+    fn default() -> Self {
+        ViewMode::FileDiff
+    }
+}
+
+// Struct to hold detailed commit information
+#[derive(Clone, Debug)]
+struct GitCommitInfo {
+    hash: String,
+    author: String,
+    date: String,
+    message: String,
+    changed_files: Vec<String>,
 }
 
 struct GitCache {
     status: Option<GitStatus>,
     remotes: Option<Vec<GitRemote>>,
     log_entries: Option<Vec<GitLogEntry>>,
+    branches: Option<GitBranches>,
     last_refresh: Instant,
-    diff_data: HashMap<String, String>,
+    diff_cache: HashMap<String, String>,
     selected_file: Option<String>,
+    commit_file_cache: HashMap<String, Vec<String>>, // Hash -> files
 }
 
 impl Default for GitCache {
@@ -44,9 +73,11 @@ impl Default for GitCache {
             status: None,
             remotes: None,
             log_entries: None,
+            branches: None,
             last_refresh: Instant::now() - Duration::from_secs(10), // Force initial refresh
-            diff_data: HashMap::new(),
+            diff_cache: HashMap::new(),
             selected_file: None,
+            commit_file_cache: HashMap::new(),
         }
     }
 }
@@ -64,12 +95,13 @@ impl GitCache {
         self.status = Some(get_git_status(project_dir)?);
         self.remotes = Some(get_git_remotes(project_dir)?);
         self.log_entries = Some(get_git_log(project_dir)?);
+        self.branches = Some(get_git_branches(project_dir)?);
         self.last_refresh = Instant::now();
         Ok(())
     }
 
     fn clear_diff_cache(&mut self) {
-        self.diff_data.clear();
+        self.diff_cache.clear();
     }
 }
 
@@ -88,309 +120,697 @@ pub fn show_git_control(ui: &mut egui::Ui, state: &mut AppState) {
         return;
     }
     
-    let project_dir = state.project_dir.as_ref().unwrap();
+    let project_dir = state.project_dir.as_ref().unwrap().clone();
     let git_dir = project_dir.join(".git");
     
     // Check if the project is a git repository
     let is_git_repo = git_dir.exists() && git_dir.is_dir();
     
+    // Create a mutable reference to state.error_message to avoid borrowing issues
+    let error_message = &mut state.error_message;
+    
     // Split the UI into left and right panels
     ui.columns(2, |columns| {
         // Left panel - Repository info and controls
-        columns[0].group(|ui| {
-            ui.heading("Repository Status");
-            
-            if !is_git_repo {
-                ui.horizontal(|ui| {
-                    ui.label("This project is not yet under version control.");
-                    if ui.button("Initialize Git Repository").clicked() {
-                        match initialize_git_repo(project_dir) {
-                            Ok(_) => {
-                                // Success, refresh status
-                                git_state.cache.clear_diff_cache();
-                            },
-                            Err(e) => {
-                                state.error_message = Some(format!("Failed to initialize git repository: {}", e));
-                            }
-                        }
-                    }
-                });
-            } else {
-                // Refresh the cached data if needed
-                if let Err(e) = git_state.cache.refresh(project_dir) {
-                    ui.label(format!("Error refreshing git status: {}", e));
-                    return;
-                }
-                
-                // Clone the status and other data we need to avoid borrow checker issues
-                let branch = git_state.cache.status.as_ref()
-                    .map(|s| s.branch.clone())
-                    .unwrap_or_else(|| "unknown".to_string());
-                
-                let changed_files = git_state.cache.status.as_ref()
-                    .map(|s| s.changed_files.clone())
-                    .unwrap_or_default();
-                
-                let staged_files = git_state.cache.status.as_ref()
-                    .map(|s| s.staged_files.clone())
-                    .unwrap_or_default();
-                
-                ui.label(format!("Branch: {}", branch));
-                
-                ui.add_space(10.0);
-                
-                // Show changed files
-                ui.group(|ui| {
-                    ui.heading("Changed Files");
-                    
-                    if changed_files.is_empty() {
-                        ui.label("No changes detected");
-                    } else {
-                        // Make the file list scrollable with a fixed height
-                        egui::ScrollArea::vertical()
-                            .id_source("git_changed_files_scroll") 
-                            .max_height(200.0)
-                            .show(ui, |ui| {
-                                for file in &changed_files {
-                                    ui.horizontal(|ui| {
-                                        let mut checked = staged_files.contains(file);
-                                        if ui.checkbox(&mut checked, file.clone()).changed() {
-                                            if checked {
-                                                // Stage file
-                                                if let Err(e) = stage_file(project_dir, file) {
-                                                    state.error_message = Some(format!("Failed to stage file: {}", e));
-                                                }
-                                                // Clear diff cache when staging status changes
-                                                git_state.cache.clear_diff_cache();
-                                                // Force refresh on next frame
-                                                git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
-                                            } else {
-                                                // Unstage file
-                                                if let Err(e) = unstage_file(project_dir, file) {
-                                                    state.error_message = Some(format!("Failed to unstage file: {}", e));
-                                                }
-                                                // Clear diff cache when staging status changes
-                                                git_state.cache.clear_diff_cache();
-                                                // Force refresh on next frame
-                                                git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
-                                            }
-                                        }
-                                        
-                                        // Add view diff button
-                                        if ui.small_button("View Diff").clicked() {
-                                            git_state.cache.selected_file = Some(file.clone());
-                                            git_state.show_diff_panel = true;
-                                        }
-                                    });
-                                }
-                            });
-                    }
-                });
-                
-                ui.add_space(10.0);
-                
-                // Commit area
-                ui.group(|ui| {
-                    ui.heading("Commit Changes");
-                    
-                    ui.label("Commit Message:");
-                    ui.text_edit_multiline(&mut git_state.commit_message);
-                    
-                    ui.horizontal(|ui| {
-                        let can_commit = !staged_files.is_empty() && !git_state.commit_message.trim().is_empty();
-                        if ui.add_enabled(can_commit, egui::Button::new("Commit")).clicked() {
-                            match commit_changes(project_dir, &git_state.commit_message) {
-                                Ok(_) => {
-                                    // Clear commit message after successful commit
-                                    git_state.commit_message.clear();
-                                    // Force refresh and clear diff cache
-                                    git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
-                                    git_state.cache.clear_diff_cache();
-                                },
-                                Err(e) => {
-                                    state.error_message = Some(format!("Failed to commit changes: {}", e));
-                                }
-                            }
-                        }
-                        
-                        if ui.button("Refresh Status").clicked() {
-                            // Force refresh
-                            git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+        left_panel(&mut columns[0], error_message, git_state, &project_dir, is_git_repo);
+        
+        // Right panel - Diff viewer and other panels
+        right_panel(&mut columns[1], error_message, git_state, &project_dir);
+    });
+}
+
+// Left panel containing repository info, files, and actions
+fn left_panel(
+    ui: &mut egui::Ui,
+    error_message: &mut Option<String>,
+    git_state: &mut GitControlState, 
+    project_dir: &Path, 
+    is_git_repo: bool
+) {
+    ui.group(|ui| {
+        ui.heading("Repository Status");
+        
+        if !is_git_repo {
+            ui.horizontal(|ui| {
+                ui.label("This project is not yet under version control.");
+                if ui.button("Initialize Git Repository").clicked() {
+                    match initialize_git_repo(project_dir) {
+                        Ok(_) => {
+                            // Success, refresh status
                             git_state.cache.clear_diff_cache();
+                        },
+                        Err(e) => {
+                            *error_message = Some(format!("Failed to initialize git repository: {}", e));
                         }
-                    });
-                });
-                
-                ui.add_space(10.0);
-                
-                // Remote repository operations
-                ui.group(|ui| {
-                    ui.heading("Remote Repository");
-                    
-                    // Clone remotes to avoid borrow issues
-                    let remotes = git_state.cache.remotes.as_ref()
-                        .map(|r| r.clone())
-                        .unwrap_or_default();
-                    
-                    if remotes.is_empty() {
-                        ui.label("No remote repositories configured.");
-                        
-                        ui.horizontal(|ui| {
-                            ui.label("Name:");
-                            ui.text_edit_singleline(&mut git_state.remote_name);
-                        });
-                        
-                        ui.horizontal(|ui| {
-                            ui.label("URL:");
-                            ui.text_edit_singleline(&mut git_state.remote_url);
-                        });
-                        
-                        let can_add = !git_state.remote_url.trim().is_empty() && !git_state.remote_name.trim().is_empty();
-                        if ui.add_enabled(can_add, egui::Button::new("Add Remote")).clicked() {
-                            match add_git_remote(project_dir, &git_state.remote_name, &git_state.remote_url) {
-                                Ok(_) => {
-                                    // Clear fields after successful add
-                                    git_state.remote_name.clear();
-                                    git_state.remote_url.clear();
-                                    // Force refresh
+                    }
+                }
+            });
+            return;
+        }
+        
+        // Refresh the cached data if needed
+        if let Err(e) = git_state.cache.refresh(project_dir) {
+            ui.label(format!("Error refreshing git status: {}", e));
+            return;
+        }
+        
+        // Clone the status and other data we need to avoid borrow checker issues
+        let branch = git_state.cache.status.as_ref()
+            .map(|s| s.branch.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+        
+        let changed_files = git_state.cache.status.as_ref()
+            .map(|s| s.changed_files.clone())
+            .unwrap_or_default();
+        
+        let staged_files = git_state.cache.status.as_ref()
+            .map(|s| s.staged_files.clone())
+            .unwrap_or_default();
+        
+        // Branch display and selection
+        if let Some(branches) = &git_state.cache.branches {
+            ui.horizontal(|ui| {
+                ui.label("Branch:");
+                egui::ComboBox::from_id_source("branch_selector")
+                    .selected_text(branch.clone())
+                    .show_ui(ui, |ui| {
+                        for b in &branches.local {
+                            let text = if b == &branch { format!("* {}", b) } else { b.clone() };
+                            if ui.selectable_label(b == &branch, text).clicked() {
+                                // Switch branch
+                                if let Err(e) = switch_branch(project_dir, b) {
+                                    *error_message = Some(format!("Failed to switch branch: {}", e));
+                                } else {
+                                    // Force refresh cache
                                     git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
-                                },
-                                Err(e) => {
-                                    state.error_message = Some(format!("Failed to add remote: {}", e));
                                 }
                             }
                         }
-                    } else {
-                        for remote in remotes {
-                            let remote_name = remote.name.clone(); // Clone for closure
+                    });
+                
+                if ui.button("New Branch").clicked() {
+                    git_state.view_mode = ViewMode::BranchManagement;
+                }
+            });
+        } else {
+            ui.label(format!("Branch: {}", branch));
+        }
+        
+        ui.add_space(10.0);
+        
+        // Show changed files
+        ui.group(|ui| {
+            ui.heading("Changed Files");
+            
+            if changed_files.is_empty() {
+                ui.label("No changes detected");
+            } else {
+                // Make the file list scrollable with a fixed height
+                egui::ScrollArea::vertical()
+                    .id_source("git_changed_files_scroll") 
+                    .max_height(150.0)
+                    .show(ui, |ui| {
+                        for file in &changed_files {
                             ui.horizontal(|ui| {
-                                ui.label(&remote.name);
-                                ui.label(remote.url);
+                                let mut checked = staged_files.contains(file);
+                                if ui.checkbox(&mut checked, file.clone()).changed() {
+                                    if checked {
+                                        // Stage file
+                                        if let Err(e) = stage_file(project_dir, file) {
+                                            *error_message = Some(format!("Failed to stage file: {}", e));
+                                        }
+                                        // Clear diff cache when staging status changes
+                                        git_state.cache.clear_diff_cache();
+                                        // Force refresh on next frame
+                                        git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                                    } else {
+                                        // Unstage file
+                                        if let Err(e) = unstage_file(project_dir, file) {
+                                            *error_message = Some(format!("Failed to unstage file: {}", e));
+                                        }
+                                        // Clear diff cache when staging status changes
+                                        git_state.cache.clear_diff_cache();
+                                        // Force refresh on next frame
+                                        git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                                    }
+                                }
                                 
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    if ui.button("Pull").clicked() {
-                                        if let Err(e) = git_pull(project_dir, &remote_name) {
-                                            state.error_message = Some(format!("Failed to pull changes: {}", e));
-                                        } else {
-                                            // Force refresh
-                                            git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
-                                            git_state.cache.clear_diff_cache();
-                                        }
-                                    }
-                                    
-                                    if ui.button("Push").clicked() {
-                                        if let Err(e) = git_push(project_dir, &remote_name) {
-                                            state.error_message = Some(format!("Failed to push changes: {}", e));
-                                        } else {
-                                            // Force refresh
-                                            git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
-                                        }
-                                    }
-                                });
-                            });
-                        }
-                    }
-                });
-                
-                ui.add_space(10.0);
-                
-                // Commit history
-                ui.group(|ui| {
-                    ui.heading("Commit History");
-                    
-                    let log_entries = git_state.cache.log_entries.as_ref()
-                        .map(|l| l.clone())
-                        .unwrap_or_default();
-                    
-                    egui::ScrollArea::vertical()
-                    .id_source("git_history_scroll")
-                    .max_height(200.0).show(ui, |ui| {
-                        for entry in &log_entries {
-                            ui.group(|ui| {
-                                ui.horizontal(|ui| {
-                                    ui.strong(&entry.hash);
-                                    ui.label(&entry.date);
-                                });
-                                ui.label(&entry.author);
-                                ui.label(&entry.message);
+                                // Add view diff button
+                                if ui.small_button("View Diff").clicked() {
+                                    git_state.cache.selected_file = Some(file.clone());
+                                    git_state.show_diff_panel = true;
+                                    git_state.view_mode = ViewMode::FileDiff;
+                                    git_state.selected_commit = None;
+                                }
                             });
                         }
                     });
-                });
             }
         });
         
-        // Right panel - Diff viewer (if a file is selected)
-        columns[1].group(|ui| {
-            if git_state.show_diff_panel {
-                ui.vertical(|ui| {
-                    ui.heading("Diff Viewer");
-                    
-                    if let Some(file) = git_state.cache.selected_file.clone() {
-                        ui.horizontal(|ui| {
-                            ui.heading(&file);
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button("×").clicked() {
-                                    git_state.show_diff_panel = false;
+        ui.add_space(10.0);
+        
+        // Commit area
+        ui.group(|ui| {
+            ui.heading("Commit Changes");
+            
+            ui.label("Commit Message:");
+            ui.text_edit_multiline(&mut git_state.commit_message);
+            
+            ui.horizontal(|ui| {
+                let can_commit = !staged_files.is_empty() && !git_state.commit_message.trim().is_empty();
+                if ui.add_enabled(can_commit, egui::Button::new("Commit")).clicked() {
+                    match commit_changes(project_dir, &git_state.commit_message) {
+                        Ok(_) => {
+                            // Clear commit message after successful commit
+                            git_state.commit_message.clear();
+                            // Force refresh and clear diff cache
+                            git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                            git_state.cache.clear_diff_cache();
+                        },
+                        Err(e) => {
+                            *error_message = Some(format!("Failed to commit changes: {}", e));
+                        }
+                    }
+                }
+                
+                if ui.button("Refresh Status").clicked() {
+                    // Force refresh
+                    git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                    git_state.cache.clear_diff_cache();
+                }
+            });
+        });
+        
+        ui.add_space(10.0);
+        
+        // Remote repository operations
+        ui.group(|ui| {
+            ui.heading("Remote Repository");
+            
+            // Clone remotes to avoid borrow issues
+            let remotes = git_state.cache.remotes.as_ref()
+                .map(|r| r.clone())
+                .unwrap_or_default();
+            
+            if remotes.is_empty() {
+                ui.label("No remote repositories configured.");
+                
+                ui.horizontal(|ui| {
+                    ui.label("Name:");
+                    ui.text_edit_singleline(&mut git_state.remote_name);
+                });
+                
+                ui.horizontal(|ui| {
+                    ui.label("URL:");
+                    ui.text_edit_singleline(&mut git_state.remote_url);
+                });
+                
+                let can_add = !git_state.remote_url.trim().is_empty() && !git_state.remote_name.trim().is_empty();
+                if ui.add_enabled(can_add, egui::Button::new("Add Remote")).clicked() {
+                    match add_git_remote(project_dir, &git_state.remote_name, &git_state.remote_url) {
+                        Ok(_) => {
+                            // Clear fields after successful add
+                            git_state.remote_name.clear();
+                            git_state.remote_url.clear();
+                            // Force refresh
+                            git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                        },
+                        Err(e) => {
+                                                                *error_message = Some(format!("Failed to add remote: {}", e));
+                        }
+                    }
+                }
+            } else {
+                for remote in remotes {
+                    let remote_name = remote.name.clone(); // Clone for closure
+                    ui.horizontal(|ui| {
+                        ui.label(&remote.name);
+                        ui.label(remote.url);
+                        
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Pull").clicked() {
+                                if let Err(e) = git_pull(project_dir, &remote_name) {
+                                    *error_message = Some(format!("Failed to pull changes: {}", e));
+                                } else {
+                                    // Force refresh
+                                    git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                                    git_state.cache.clear_diff_cache();
                                 }
-                            });
+                            }
+                            
+                            if ui.button("Push").clicked() {
+                                if let Err(e) = git_push(project_dir, &remote_name) {
+                                    *error_message = Some(format!("Failed to push changes: {}", e));
+                                } else {
+                                    // Force refresh
+                                    git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                                }
+                            }
                         });
-                        
-                        ui.separator();
-                        
-                        // Get diff
-                        match get_file_diff(project_dir, &file) {
-                            Ok(diff) => {
+                    });
+                }
+            }
+        });
+        
+        ui.add_space(10.0);
+        
+        // Commit history
+        ui.group(|ui| {
+            ui.heading("Commit History");
+            
+            let log_entries = git_state.cache.log_entries.as_ref()
+                .map(|l| l.clone())
+                .unwrap_or_default();
+            
+            egui::ScrollArea::vertical()
+            .id_source("git_history_scroll")
+            .max_height(150.0).show(ui, |ui| {
+                for entry in &log_entries {
+                    let is_selected = git_state.selected_commit.as_ref()
+                        .map(|c| c.hash == entry.hash)
+                        .unwrap_or(false);
+                    
+                    // Use selectable to indicate current selection
+                    let commit_ui = ui.selectable_label(
+                        is_selected,
+                        format!("{} ({}): {}", entry.hash, entry.date, entry.message)
+                    );
+                    
+                    if commit_ui.clicked() {
+                        // Get files changed in this commit
+                        match get_commit_files(project_dir, &entry.hash) {
+                            Ok(files) => {
                                 // Store in cache for future reference
-                                git_state.cache.diff_data.insert(file.clone(), diff.clone());
-                                show_diff_content(ui, &diff);
+                                git_state.cache.commit_file_cache.insert(entry.hash.clone(), files.clone());
+                                
+                                // Store commit info for display
+                                git_state.selected_commit = Some(GitCommitInfo {
+                                    hash: entry.hash.clone(),
+                                    author: entry.author.clone(),
+                                    date: entry.date.clone(),
+                                    message: entry.message.clone(),
+                                    changed_files: files,
+                                });
+                                
+                                // Switch to commit info view mode
+                                git_state.view_mode = ViewMode::CommitInfo;
                             },
                             Err(e) => {
-                                ui.label(format!("Error getting diff: {}", e));
+                                *error_message = Some(format!("Failed to get commit files: {}", e));
                             }
                         }
-                    } else {
-                        ui.centered_and_justified(|ui| {
-                            ui.label("Select a file to view its diff");
+                    }
+                }
+            });
+        });
+    });
+}
+
+// Right panel for diff viewing and other context-specific panels
+fn right_panel(
+    ui: &mut egui::Ui,
+    error_message: &mut Option<String>,
+    git_state: &mut GitControlState,
+    project_dir: &Path
+) {
+    ui.group(|ui| {
+        match git_state.view_mode {
+            ViewMode::FileDiff => {
+                show_file_diff_panel(ui, git_state, project_dir);
+            },
+            ViewMode::CommitInfo => {
+                show_commit_info_panel(ui, error_message, git_state, project_dir);
+            },
+            ViewMode::BranchManagement => {
+                show_branch_management_panel(ui, error_message, git_state, project_dir);
+            }
+        }
+    });
+}
+
+// Show file diff panel
+fn show_file_diff_panel(ui: &mut egui::Ui, git_state: &mut GitControlState, project_dir: &Path) {
+    ui.vertical(|ui| {
+        ui.heading("Diff Viewer");
+        
+        if let Some(file) = git_state.cache.selected_file.clone() {
+            ui.horizontal(|ui| {
+                ui.heading(&file);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("×").clicked() {
+                        git_state.show_diff_panel = false;
+                    }
+                });
+            });
+            
+            ui.separator();
+            
+            // Check if we have this diff cached
+            let diff = if let Some(cached) = git_state.cache.diff_cache.get(&file) {
+                cached.clone()
+            } else {
+                // Get diff and cache it
+                match get_file_diff(project_dir, &file) {
+                    Ok(diff) => {
+                        git_state.cache.diff_cache.insert(file.clone(), diff.clone());
+                        diff
+                    },
+                    Err(e) => {
+                        format!("Error getting diff: {}", e)
+                    }
+                }
+            };
+            
+            show_diff_content(ui, &diff);
+        } else {
+            ui.centered_and_justified(|ui| {
+                ui.label("Select a file to view its diff");
+            });
+        }
+    });
+}
+
+// Show commit info panel
+fn show_commit_info_panel(
+    ui: &mut egui::Ui, 
+    error_message: &mut Option<String>,
+    git_state: &mut GitControlState, 
+    project_dir: &Path
+) {
+    ui.vertical(|ui| {
+        ui.heading("Commit Details");
+        
+        // Clone the commit data to avoid borrow checker issues
+        let commit_data = git_state.selected_commit.clone();
+        
+        if let Some(commit) = commit_data {
+            let commit_hash = commit.hash.clone();
+            
+            ui.horizontal(|ui| {
+                ui.strong("Commit:");
+                ui.label(&commit.hash);
+                
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("×").clicked() {
+                        git_state.selected_commit = None;
+                        git_state.view_mode = ViewMode::FileDiff;
+                    }
+                });
+            });
+            
+            ui.horizontal(|ui| {
+                ui.strong("Author:");
+                ui.label(&commit.author);
+            });
+            
+            ui.horizontal(|ui| {
+                ui.strong("Date:");
+                ui.label(&commit.date);
+            });
+            
+            ui.horizontal(|ui| {
+                ui.strong("Message:");
+                ui.label(&commit.message);
+            });
+            
+            ui.add_space(10.0);
+            ui.label("Files changed:");
+            
+            egui::ScrollArea::vertical()
+                .id_source("commit_files_scroll")
+                .max_height(150.0)
+                .show(ui, |ui| {
+                    for file in &commit.changed_files {
+                        let file_clone = file.clone();
+                        ui.horizontal(|ui| {
+                            ui.label(&file_clone);
+                            if ui.small_button("View Diff").clicked() {
+                                // Show diff for this file at this commit
+                                match get_commit_file_diff(project_dir, &commit_hash, &file_clone) {
+                                    Ok(diff) => {
+                                        // Cache the diff
+                                        let cache_key = format!("{}:{}", commit_hash, file_clone);
+                                        git_state.cache.diff_cache.insert(cache_key.clone(), diff.clone());
+                                        
+                                        // Display the diff
+                                        git_state.cache.selected_file = Some(cache_key);
+                                        git_state.show_diff_panel = true;
+                                        git_state.view_mode = ViewMode::FileDiff;
+                                    },
+                                    Err(e) => {
+                                        *error_message = Some(format!("Failed to get commit file diff: {}", e));
+                                    }
+                                }
+                            }
                         });
                     }
                 });
+        } else {
+            ui.centered_and_justified(|ui| {
+                ui.label("Select a commit to view details");
+            });
+        }
+    });
+}
+
+// Show branch management panel
+fn show_branch_management_panel(
+    ui: &mut egui::Ui, 
+    error_message: &mut Option<String>,
+    git_state: &mut GitControlState, 
+    project_dir: &Path
+) {
+    ui.vertical(|ui| {
+        ui.heading("Branch Management");
+        
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("×").clicked() {
+                    git_state.view_mode = ViewMode::FileDiff;
+                }
+            });
+        });
+        
+        // New branch creation
+        ui.group(|ui| {
+            ui.heading("Create New Branch");
+            
+            static mut NEW_BRANCH_NAME: String = String::new();
+            
+            // Safety: This is only used in the UI context, not in a multithreaded environment
+            let new_branch_name = unsafe { &mut NEW_BRANCH_NAME };
+            
+            ui.horizontal(|ui| {
+                ui.label("Branch Name:");
+                ui.text_edit_singleline(new_branch_name);
+                
+                let can_create = !new_branch_name.trim().is_empty();
+                if ui.add_enabled(can_create, egui::Button::new("Create")).clicked() {
+                    match create_branch(project_dir, new_branch_name) {
+                        Ok(_) => {
+                            // Clear the branch name
+                            *new_branch_name = String::new();
+                            // Force refresh
+                            git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                        },
+                        Err(e) => {
+                            *error_message = Some(format!("Failed to create branch: {}", e));
+                        }
+                    }
+                }
+            });
+            
+            ui.checkbox(&mut false, "Checkout new branch") // Not yet implemented
+                .on_hover_text("Create and checkout new branch");
+        });
+        
+        ui.add_space(10.0);
+        
+        // Branch list
+        ui.group(|ui| {
+            ui.heading("Branches");
+            
+            if let Some(branches) = &git_state.cache.branches {
+                let current_branch = git_state.cache.status.as_ref()
+                    .map(|s| s.branch.clone())
+                    .unwrap_or_default();
+                
+                ui.label("Local:");
+                
+                egui::ScrollArea::vertical()
+                    .id_source("local_branches_scroll")
+                    .max_height(100.0)
+                    .show(ui, |ui| {
+                        for branch in &branches.local {
+                            ui.horizontal(|ui| {
+                                let is_current = branch == &current_branch;
+                                let text = if is_current { format!("* {}", branch) } else { branch.clone() };
+                                
+                                ui.selectable_label(is_current, text);
+                                
+                                if !is_current {
+                                    if ui.small_button("Checkout").clicked() {
+                                        if let Err(e) = switch_branch(project_dir, branch) {
+                                            *error_message = Some(format!("Failed to switch branch: {}", e));
+                                        } else {
+                                            // Force refresh
+                                            git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                                        }
+                                    }
+                                    
+                                    if ui.small_button("Delete").clicked() {
+                                        if let Err(e) = delete_branch(project_dir, branch) {
+                                            *error_message = Some(format!("Failed to delete branch: {}", e));
+                                        } else {
+                                            // Force refresh
+                                            git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    });
+                
+                if !branches.remote.is_empty() {
+                    ui.add_space(10.0);
+                    ui.label("Remote:");
+                    
+                    egui::ScrollArea::vertical()
+                        .id_source("remote_branches_scroll")
+                        .max_height(100.0)
+                        .show(ui, |ui| {
+                            for branch in &branches.remote {
+                                ui.horizontal(|ui| {
+                                    ui.label(branch);
+                                    
+                                    if ui.small_button("Checkout").clicked() {
+                                        let local_name = branch.split('/').last().unwrap_or(branch);
+                                        if let Err(e) = checkout_remote_branch(project_dir, branch, local_name) {
+                                            *error_message = Some(format!("Failed to checkout remote branch: {}", e));
+                                        } else {
+                                            // Force refresh
+                                            git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                }
             } else {
-                ui.centered_and_justified(|ui| {
-                    ui.label("Select a file to view its changes");
-                });
+                ui.label("No branch information available");
             }
         });
     });
 }
 
-// New function to display diff content with syntax highlighting
+// Function to display diff content with syntax highlighting
 fn show_diff_content(ui: &mut egui::Ui, diff: &str) {
+    // More efficient diff rendering to avoid lag
     egui::ScrollArea::vertical()
         .id_source("diff_content_scroll")
         .max_height(ui.available_height() - 40.0)
         .show(ui, |ui| {
-            let lines = diff.lines();
+            let lines: Vec<&str> = diff.lines().collect();
             
-            for line in lines {
-                if line.starts_with('+') && !line.starts_with("+++") {
-                    // Added line
-                    ui.colored_label(egui::Color32::from_rgb(0, 128, 0), line);
-                } else if line.starts_with('-') && !line.starts_with("---") {
-                    // Removed line
-                    ui.colored_label(egui::Color32::from_rgb(255, 0, 0), line);
-                } else if line.starts_with("@@") {
-                    // Hunk header
-                    ui.colored_label(egui::Color32::from_rgb(0, 0, 128), line);
-                } else {
-                    // Context line
-                    ui.label(line);
-                }
-            }
+            // Visible range optimization - only render visible content
+            // Calculate the number of lines that can be visible based on available height
+            let line_height = 16.0; // Approximate height of a line in pixels
+            let available_height = ui.available_height();
+            let max_visible_lines = (available_height / line_height).ceil() as usize + 2; // +2 for padding
+            
+            egui::Grid::new("diff_grid")
+                .striped(true)
+                .spacing([2.0, 0.0])
+                .show(ui, |ui| {
+                    for line in lines {
+                        // Different coloring for different line types
+                        let color = if line.starts_with('+') && !line.starts_with("+++") {
+                            egui::Color32::from_rgb(0, 128, 0) // Added line - green
+                        } else if line.starts_with('-') && !line.starts_with("---") {
+                            egui::Color32::from_rgb(255, 0, 0) // Removed line - red
+                        } else if line.starts_with("@@") {
+                            egui::Color32::from_rgb(0, 0, 128) // Hunk header - blue
+                        } else {
+                            ui.style().visuals.text_color() // Normal text color
+                        };
+                        
+                        ui.colored_label(color, line);
+                        ui.end_row();
+                    }
+                });
         });
 }
 
-// New function to get file diff
+// Get information about files changed in a specific commit
+fn get_commit_files(project_dir: &Path, commit_hash: &str) -> Result<Vec<String>, String> {
+    let output = Command::new("git")
+        .args(["show", "--name-only", "--format=", commit_hash])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| format!("Failed to get commit files: {}", e))?;
+    
+    if !output.status.success() {
+        return Err(format!("Failed to get commit files: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let files: Vec<String> = output_str
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| line.to_string())
+        .collect();
+    
+    Ok(files)
+}
+
+// Get diff for a specific file at a specific commit
+fn get_commit_file_diff(project_dir: &Path, commit_hash: &str, file: &str) -> Result<String, String> {
+    // First validate that the file exists in the commit
+    let files = get_commit_files(project_dir, commit_hash)?;
+    if !files.contains(&file.to_string()) {
+        return Err(format!("File '{}' not found in commit {}", file, commit_hash));
+    }
+    
+    // Get diff for the specific file
+    let output = Command::new("git")
+        .args(["show", &format!("{}:{}", commit_hash, file)])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| format!("Failed to get commit file content: {}", e))?;
+    
+    if !output.status.success() {
+        return Err(format!("Failed to get commit file content: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    
+    // Get current file content for comparison
+    let current_content = match std::fs::read_to_string(project_dir.join(file)) {
+        Ok(content) => content,
+        Err(_) => "".to_string(), // File may have been deleted
+    };
+    
+    // Format as a diff-like output
+    let commit_content = String::from_utf8_lossy(&output.stdout).to_string();
+    
+    // Basic diff-like format
+    let mut diff = String::new();
+    diff.push_str(&format!("--- a/{}\n", file));
+    diff.push_str(&format!("+++ b/{}\n", file));
+    diff.push_str("@@ Commit version vs Current @@\n");
+    
+    // Add content lines
+    for line in commit_content.lines() {
+        diff.push_str(&format!("-{}\n", line));
+    }
+    
+    for line in current_content.lines() {
+        diff.push_str(&format!("+{}\n", line));
+    }
+    
+    Ok(diff)
+}
+
+// Function to get diff for a file
 fn get_file_diff(project_dir: &Path, file: &str) -> Result<String, String> {
     let output = Command::new("git")
         .args(["diff", "--color=never", "--", file])
@@ -419,6 +839,121 @@ fn get_file_diff(project_dir: &Path, file: &str) -> Result<String, String> {
     }
     
     Ok(diff)
+}
+
+// Git branches structure
+#[derive(Clone, Debug)]
+struct GitBranches {
+    local: Vec<String>,
+    remote: Vec<String>,
+}
+
+// Function to get branches
+fn get_git_branches(project_dir: &Path) -> Result<GitBranches, String> {
+    // Get local branches
+    let local_output = Command::new("git")
+        .args(["branch", "--list"])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| format!("Failed to get local branches: {}", e))?;
+    
+    let local_str = String::from_utf8_lossy(&local_output.stdout);
+    let mut local_branches = Vec::new();
+    
+    for line in local_str.lines() {
+        let branch_name = line.trim_start_matches('*').trim();
+        if !branch_name.is_empty() {
+            local_branches.push(branch_name.to_string());
+        }
+    }
+    
+    // Get remote branches
+    let remote_output = Command::new("git")
+        .args(["branch", "--remote"])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| format!("Failed to get remote branches: {}", e))?;
+    
+    let remote_str = String::from_utf8_lossy(&remote_output.stdout);
+    let mut remote_branches = Vec::new();
+    
+    for line in remote_str.lines() {
+        let branch_name = line.trim();
+        if !branch_name.is_empty() && !branch_name.contains("HEAD") {
+            remote_branches.push(branch_name.to_string());
+        }
+    }
+    
+    Ok(GitBranches { local: local_branches, remote: remote_branches })
+}
+
+// Function to switch to a branch
+fn switch_branch(project_dir: &Path, branch: &str) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(["checkout", branch])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| format!("Failed to switch branch: {}", e))?;
+    
+    if !output.status.success() {
+        return Err(format!("Failed to switch branch: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    
+    Ok(())
+}
+
+// Function to create a new branch
+fn create_branch(project_dir: &Path, branch: &str) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(["branch", branch])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| format!("Failed to create branch: {}", e))?;
+    
+    if !output.status.success() {
+        return Err(format!("Failed to create branch: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    
+    Ok(())
+}
+
+// Function to delete a branch
+fn delete_branch(project_dir: &Path, branch: &str) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(["branch", "-d", branch])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| format!("Failed to delete branch: {}", e))?;
+    
+    if !output.status.success() {
+        // Try force delete if regular delete fails
+        let force_output = Command::new("git")
+            .args(["branch", "-D", branch])
+            .current_dir(project_dir)
+            .output()
+            .map_err(|e| format!("Failed to force delete branch: {}", e))?;
+        
+        if !force_output.status.success() {
+            return Err(format!("Failed to delete branch: {}", String::from_utf8_lossy(&force_output.stderr)));
+        }
+    }
+    
+    Ok(())
+}
+
+// Function to checkout a remote branch
+fn checkout_remote_branch(project_dir: &Path, remote_branch: &str, local_branch: &str) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(["checkout", "-b", local_branch, remote_branch])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| format!("Failed to checkout remote branch: {}", e))?;
+    
+    if !output.status.success() {
+        return Err(format!("Failed to checkout remote branch: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    
+    Ok(())
 }
 
 // Git operation structures
