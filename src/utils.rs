@@ -38,15 +38,36 @@ pub fn load_app_icon() -> Arc<egui::IconData> {
 fn load_svg_icon(svg_data: &[u8]) -> Option<egui::IconData> {
     let icon_size: u32 = 64; // Size to render the icon (pixels)
     
-    // Parse SVG
+    // Parse SVG with default options
     let opt = usvg::Options::default();
     match usvg::Tree::from_data(svg_data, &opt) {
         Ok(tree) => {
+            // Get the size of the SVG
+            let svg_size = tree.size();
+            
             // Create a pixmap to render to
             match tiny_skia::Pixmap::new(icon_size, icon_size) {
                 Some(mut pixmap) => {
+                    // Create a transform that will scale and center the SVG
+                    let xform = {
+                        // Calculate scaling to fit the SVG in the icon
+                        let scale_x = icon_size as f32 / svg_size.width();
+                        let scale_y = icon_size as f32 / svg_size.height();
+                        let scale = scale_x.min(scale_y);
+                        
+                        // Calculate translation to center the SVG
+                        let tx = (icon_size as f32 - svg_size.width() * scale) / 2.0;
+                        let ty = (icon_size as f32 - svg_size.height() * scale) / 2.0;
+                        
+                        // Create the transform
+                        usvg::Transform::from_scale(scale, scale).pre_translate(tx, ty)
+                    };
+                    
+                    // Clear the pixmap with transparent background
+                    pixmap.fill(tiny_skia::Color::from_rgba8(0, 0, 0, 0));
+                    
                     // Render the SVG
-                    resvg::render(&tree, usvg::Transform::default(), &mut pixmap.as_mut());
+                    resvg::render(&tree, xform, &mut pixmap.as_mut());
                     
                     // Convert the pixmap to RGBA data for egui
                     Some(egui::IconData {
