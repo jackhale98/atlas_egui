@@ -17,6 +17,9 @@ pub struct GitControlState {
     show_diff_panel: bool,
     view_mode: ViewMode,
     selected_commit: Option<GitCommitInfo>,
+    // Add new fields for merge functionality
+    merge_from_branch: String,
+    merge_to_branch: String,
 }
 
 // Implement Debug for GitControlState
@@ -28,6 +31,8 @@ impl fmt::Debug for GitControlState {
             .field("remote_name", &self.remote_name)
             .field("show_diff_panel", &self.show_diff_panel)
             .field("view_mode", &self.view_mode)
+            .field("merge_from_branch", &self.merge_from_branch)
+            .field("merge_to_branch", &self.merge_to_branch)
             .finish()
     }
 }
@@ -189,26 +194,39 @@ fn left_panel(
         
         // Branch display and selection
         if let Some(branches) = &git_state.cache.branches {
+            // Clone the branches data to avoid borrow conflicts
+            let branches_clone = branches.clone();
+            let current_branch = git_state.cache.status.as_ref()
+                .map(|s| s.branch.clone())
+                .unwrap_or_else(|| "unknown".to_string());
+                
             ui.horizontal(|ui| {
                 ui.label("Branch:");
                 egui::ComboBox::from_id_source("branch_selector")
-                    .selected_text(branch.clone())
+                    .selected_text(current_branch.clone())
                     .show_ui(ui, |ui| {
-                        for b in &branches.local {
-                            let text = if b == &branch { format!("* {}", b) } else { b.clone() };
-                            if ui.selectable_label(b == &branch, text).clicked() {
+                        for b in &branches_clone.local {
+                            let text = if b == &current_branch { format!("* {}", b) } else { b.clone() };
+                            if ui.selectable_label(b == &current_branch, text).clicked() {
                                 // Switch branch
-                                if let Err(e) = switch_branch(project_dir, b) {
+                                let branch_name = b.clone(); // Clone before using in closure
+                                if let Err(e) = switch_branch(project_dir, &branch_name) {
                                     *error_message = Some(format!("Failed to switch branch: {}", e));
                                 } else {
+                                    // Hard reset to properly update working directory
+                                    if let Err(e) = reset_hard(project_dir) {
+                                        *error_message = Some(format!("Failed to reset after branch switch: {}", e));
+                                    }
+                                    
                                     // Force refresh cache
+                                    git_state.cache.clear_diff_cache();
                                     git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
                                 }
                             }
                         }
                     });
                 
-                if ui.button("New Branch").clicked() {
+                if ui.button("Branch Management").clicked() {
                     git_state.view_mode = ViewMode::BranchManagement;
                 }
             });
@@ -337,7 +355,7 @@ fn left_panel(
                             git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
                         },
                         Err(e) => {
-                                                                *error_message = Some(format!("Failed to add remote: {}", e));
+                            *error_message = Some(format!("Failed to add remote: {}", e));
                         }
                     }
                 }
@@ -460,6 +478,16 @@ fn show_file_diff_panel(ui: &mut egui::Ui, git_state: &mut GitControlState, proj
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("×").clicked() {
                         git_state.show_diff_panel = false;
+                        
+                        // This is the key fix - reset the view mode to match the selected commit if any
+                        if git_state.selected_commit.is_some() {
+                            git_state.view_mode = ViewMode::CommitInfo;
+                        } else {
+                            git_state.view_mode = ViewMode::FileDiff;
+                        }
+                        
+                        // Clear the selected file
+                        git_state.cache.selected_file = None;
                     }
                 });
             });
@@ -470,8 +498,21 @@ fn show_file_diff_panel(ui: &mut egui::Ui, git_state: &mut GitControlState, proj
             let diff = if let Some(cached) = git_state.cache.diff_cache.get(&file) {
                 cached.clone()
             } else {
-                // Get diff and cache it
-                match get_file_diff(project_dir, &file) {
+                // Determine if this is a commit file diff or a working directory diff
+                let diff_result = if file.contains(':') {
+                    // It's a commit file diff (format: "hash:file")
+                    let parts: Vec<&str> = file.splitn(2, ':').collect();
+                    if parts.len() == 2 {
+                        get_commit_file_diff(project_dir, parts[0], parts[1])
+                    } else {
+                        Err(format!("Invalid file format: {}", file))
+                    }
+                } else {
+                    // It's a working directory diff
+                    get_file_diff(project_dir, &file)
+                };
+                
+                match diff_result {
                     Ok(diff) => {
                         git_state.cache.diff_cache.insert(file.clone(), diff.clone());
                         diff
@@ -597,9 +638,11 @@ fn show_branch_management_panel(
             ui.heading("Create New Branch");
             
             static mut NEW_BRANCH_NAME: String = String::new();
+            static mut CHECKOUT_NEW_BRANCH: bool = false; // Use proper state for the checkbox
             
             // Safety: This is only used in the UI context, not in a multithreaded environment
             let new_branch_name = unsafe { &mut NEW_BRANCH_NAME };
+            let checkout_new_branch = unsafe { &mut CHECKOUT_NEW_BRANCH };
             
             ui.horizontal(|ui| {
                 ui.label("Branch Name:");
@@ -609,10 +652,23 @@ fn show_branch_management_panel(
                 if ui.add_enabled(can_create, egui::Button::new("Create")).clicked() {
                     match create_branch(project_dir, new_branch_name) {
                         Ok(_) => {
+                            // Check out the new branch if requested
+                            if *checkout_new_branch {
+                                if let Err(e) = switch_branch(project_dir, new_branch_name) {
+                                    *error_message = Some(format!("Failed to checkout branch: {}", e));
+                                } else {
+                                    // Hard reset to properly update working directory
+                                    if let Err(e) = reset_hard(project_dir) {
+                                        *error_message = Some(format!("Failed to reset after branch switch: {}", e));
+                                    }
+                                }
+                            }
+                            
                             // Clear the branch name
                             *new_branch_name = String::new();
                             // Force refresh
                             git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                            git_state.cache.clear_diff_cache();
                         },
                         Err(e) => {
                             *error_message = Some(format!("Failed to create branch: {}", e));
@@ -621,7 +677,8 @@ fn show_branch_management_panel(
                 }
             });
             
-            ui.checkbox(&mut false, "Checkout new branch") // Not yet implemented
+            // Use the proper state variable for the checkbox
+            ui.checkbox(checkout_new_branch, "Checkout new branch")
                 .on_hover_text("Create and checkout new branch");
         });
         
@@ -632,6 +689,8 @@ fn show_branch_management_panel(
             ui.heading("Branches");
             
             if let Some(branches) = &git_state.cache.branches {
+                // Clone branches to avoid borrow conflicts
+                let branches_clone = branches.clone();
                 let current_branch = git_state.cache.status.as_ref()
                     .map(|s| s.branch.clone())
                     .unwrap_or_default();
@@ -642,7 +701,7 @@ fn show_branch_management_panel(
                     .id_source("local_branches_scroll")
                     .max_height(100.0)
                     .show(ui, |ui| {
-                        for branch in &branches.local {
+                        for branch in &branches_clone.local {
                             ui.horizontal(|ui| {
                                 let is_current = branch == &current_branch;
                                 let text = if is_current { format!("* {}", branch) } else { branch.clone() };
@@ -650,17 +709,23 @@ fn show_branch_management_panel(
                                 ui.selectable_label(is_current, text);
                                 
                                 if !is_current {
+                                    let branch_name = branch.clone(); // Clone branch name for closure
                                     if ui.small_button("Checkout").clicked() {
-                                        if let Err(e) = switch_branch(project_dir, branch) {
+                                        if let Err(e) = switch_branch(project_dir, &branch_name) {
                                             *error_message = Some(format!("Failed to switch branch: {}", e));
                                         } else {
+                                            // Hard reset to properly update working directory
+                                            if let Err(e) = reset_hard(project_dir) {
+                                                *error_message = Some(format!("Failed to reset after branch switch: {}", e));
+                                            }
                                             // Force refresh
                                             git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                                            git_state.cache.clear_diff_cache();
                                         }
                                     }
                                     
                                     if ui.small_button("Delete").clicked() {
-                                        if let Err(e) = delete_branch(project_dir, branch) {
+                                        if let Err(e) = delete_branch(project_dir, &branch_name) {
                                             *error_message = Some(format!("Failed to delete branch: {}", e));
                                         } else {
                                             // Force refresh
@@ -672,7 +737,7 @@ fn show_branch_management_panel(
                         }
                     });
                 
-                if !branches.remote.is_empty() {
+                if !branches_clone.remote.is_empty() {
                     ui.add_space(10.0);
                     ui.label("Remote:");
                     
@@ -680,22 +745,101 @@ fn show_branch_management_panel(
                         .id_source("remote_branches_scroll")
                         .max_height(100.0)
                         .show(ui, |ui| {
-                            for branch in &branches.remote {
+                            for branch in &branches_clone.remote {
+                                let branch_name = branch.clone(); // Clone for closure
                                 ui.horizontal(|ui| {
-                                    ui.label(branch);
+                                    ui.label(&branch_name);
                                     
                                     if ui.small_button("Checkout").clicked() {
-                                        let local_name = branch.split('/').last().unwrap_or(branch);
-                                        if let Err(e) = checkout_remote_branch(project_dir, branch, local_name) {
+                                        let local_name = branch_name.split('/').last().unwrap_or(&branch_name).to_string();
+                                        if let Err(e) = checkout_remote_branch(project_dir, &branch_name, &local_name) {
                                             *error_message = Some(format!("Failed to checkout remote branch: {}", e));
                                         } else {
                                             // Force refresh
                                             git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                                            git_state.cache.clear_diff_cache();
                                         }
                                     }
                                 });
                             }
                         });
+                }
+            } else {
+                ui.label("No branch information available");
+            }
+        });
+        
+        // Add Merge section
+        ui.add_space(10.0);
+        
+        ui.group(|ui| {
+            ui.heading("Merge Branches");
+            
+            if let Some(branches) = &git_state.cache.branches {
+                // Clone branches to avoid borrow checker issues
+                let branches_clone = branches.clone();
+                let current_branch = git_state.cache.status.as_ref()
+                    .map(|s| s.branch.clone())
+                    .unwrap_or_default();
+                
+                // From branch selection
+                ui.horizontal(|ui| {
+                    ui.label("From Branch:");
+                    egui::ComboBox::from_id_source("merge_from_branch")
+                        .selected_text(&git_state.merge_from_branch)
+                        .show_ui(ui, |ui| {
+                            for branch in &branches_clone.local {
+                                if branch != &current_branch {
+                                    ui.selectable_value(
+                                        &mut git_state.merge_from_branch,
+                                        branch.clone(),
+                                        branch
+                                    );
+                                }
+                            }
+                        });
+                });
+                
+                // To branch selection
+                ui.horizontal(|ui| {
+                    ui.label("To Branch:");
+                    egui::ComboBox::from_id_source("merge_to_branch")
+                        .selected_text(&git_state.merge_to_branch)
+                        .show_ui(ui, |ui| {
+                            for branch in &branches_clone.local {
+                                ui.selectable_value(
+                                    &mut git_state.merge_to_branch,
+                                    branch.clone(),
+                                    branch
+                                );
+                            }
+                        });
+                });
+                
+                // Merge button
+                let can_merge = !git_state.merge_from_branch.is_empty() && 
+                              !git_state.merge_to_branch.is_empty() && 
+                              git_state.merge_from_branch != git_state.merge_to_branch;
+                
+                if ui.add_enabled(can_merge, egui::Button::new("Merge")).clicked() {
+                    if let Err(e) = merge_branch(
+                        project_dir, 
+                        &git_state.merge_from_branch, 
+                        &git_state.merge_to_branch
+                    ) {
+                        *error_message = Some(format!("Failed to merge branch: {}", e));
+                    } else {
+                        // Success message
+                        *error_message = Some(format!(
+                            "Successfully merged {} into {}", 
+                            git_state.merge_from_branch, 
+                            git_state.merge_to_branch
+                        ));
+                        
+                        // Force refresh
+                        git_state.cache.last_refresh = Instant::now() - Duration::from_secs(10);
+                        git_state.cache.clear_diff_cache();
+                    }
                 }
             } else {
                 ui.label("No branch information available");
@@ -764,46 +908,86 @@ fn get_commit_files(project_dir: &Path, commit_hash: &str) -> Result<Vec<String>
     Ok(files)
 }
 
-// Get diff for a specific file at a specific commit
-fn get_commit_file_diff(project_dir: &Path, commit_hash: &str, file: &str) -> Result<String, String> {
-    // First validate that the file exists in the commit
-    let files = get_commit_files(project_dir, commit_hash)?;
-    if !files.contains(&file.to_string()) {
-        return Err(format!("File '{}' not found in commit {}", file, commit_hash));
+// Function to merge a branch
+fn merge_branch(project_dir: &Path, from_branch: &str, to_branch: &str) -> Result<(), String> {
+    // First, switch to the target branch
+    let checkout_output = Command::new("git")
+        .args(["checkout", to_branch])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| format!("Failed to checkout target branch: {}", e))?;
+    
+    if !checkout_output.status.success() {
+        return Err(format!("Failed to checkout target branch: {}", 
+                          String::from_utf8_lossy(&checkout_output.stderr)));
     }
     
-    // Get diff for the specific file
+    // Then, merge the source branch
+    let merge_output = Command::new("git")
+        .args(["merge", from_branch])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| format!("Failed to merge branch: {}", e))?;
+    
+    if !merge_output.status.success() {
+        return Err(format!("Failed to merge branch: {}", 
+                          String::from_utf8_lossy(&merge_output.stderr)));
+    }
+    
+    Ok(())
+}
+
+// FIXED: Get diff for a specific file at a specific commit
+fn get_commit_file_diff(project_dir: &Path, commit_hash: &str, file: &str) -> Result<String, String> {
+    // Use git diff to show the changes introduced by a specific commit
+    let output = Command::new("git")
+        .args(["diff", &format!("{}^..{}", commit_hash, commit_hash), "--", file])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| format!("Failed to get commit diff: {}", e))?;
+    
+    if !output.status.success() {
+        // For the initial commit or if the diff fails, try a different approach
+        if String::from_utf8_lossy(&output.stderr).contains("fatal: bad revision") {
+            // This might be the initial commit, try a different approach
+            return get_initial_commit_diff(project_dir, commit_hash, file);
+        }
+        return Err(format!("Failed to get commit diff: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    
+    let diff = String::from_utf8_lossy(&output.stdout).to_string();
+    
+    // If the diff is empty (no changes to this file in this commit)
+    if diff.is_empty() {
+        return Err(format!("No changes to {} in commit {}", file, commit_hash));
+    }
+    
+    Ok(diff)
+}
+
+// For initial commits without a parent
+fn get_initial_commit_diff(project_dir: &Path, commit_hash: &str, file: &str) -> Result<String, String> {
+    // Get the file content at this commit
     let output = Command::new("git")
         .args(["show", &format!("{}:{}", commit_hash, file)])
         .current_dir(project_dir)
         .output()
-        .map_err(|e| format!("Failed to get commit file content: {}", e))?;
+        .map_err(|e| format!("Failed to get file content at commit: {}", e))?;
     
     if !output.status.success() {
-        return Err(format!("Failed to get commit file content: {}", String::from_utf8_lossy(&output.stderr)));
+        return Err(format!("Failed to get file content: {}", String::from_utf8_lossy(&output.stderr)));
     }
     
-    // Get current file content for comparison
-    let current_content = match std::fs::read_to_string(project_dir.join(file)) {
-        Ok(content) => content,
-        Err(_) => "".to_string(), // File may have been deleted
-    };
+    let content = String::from_utf8_lossy(&output.stdout).to_string();
     
-    // Format as a diff-like output
-    let commit_content = String::from_utf8_lossy(&output.stdout).to_string();
-    
-    // Basic diff-like format
+    // For initial commits, just show the file as completely added
     let mut diff = String::new();
-    diff.push_str(&format!("--- a/{}\n", file));
+    diff.push_str(&format!("--- /dev/null\n"));
     diff.push_str(&format!("+++ b/{}\n", file));
-    diff.push_str("@@ Commit version vs Current @@\n");
+    diff.push_str("@@ -0,0 +1,");
+    diff.push_str(&format!("{} @@\n", content.lines().count()));
     
-    // Add content lines
-    for line in commit_content.lines() {
-        diff.push_str(&format!("-{}\n", line));
-    }
-    
-    for line in current_content.lines() {
+    for line in content.lines() {
         diff.push_str(&format!("+{}\n", line));
     }
     
@@ -839,6 +1023,21 @@ fn get_file_diff(project_dir: &Path, file: &str) -> Result<String, String> {
     }
     
     Ok(diff)
+}
+
+// Add function to perform a hard reset after branch checkout
+fn reset_hard(project_dir: &Path) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(["reset", "--hard"])
+        .current_dir(project_dir)
+        .output()
+        .map_err(|e| format!("Failed to perform hard reset: {}", e))?;
+    
+    if !output.status.success() {
+        return Err(format!("Failed to perform hard reset: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    
+    Ok(())
 }
 
 // Git branches structure
