@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Base gradient -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8f9fa"/>
+      <stop offset="100%" stop-color="#e9ecef"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Base shape -->
+  <circle cx="50" cy="50" r="45" fill="url(#bgGradient)" />
+  
+  <!-- Precision circular element (representing a bearing or fit) -->
+  <circle cx="50" cy="50" r="32" fill="none" stroke="#1e40af" stroke-width="0.6" opacity="0.5" />
+  <circle cx="50" cy="50" r="30" fill="none" stroke="#1e40af" stroke-width="0.6" opacity="0.5" />
+  
+  <!-- Stylized "A" with integrated technical elements -->
+  <g>
+    <!-- Main A shape -->
+    <path d="M32,75 L50,25 L68,75 Z" fill="none" stroke="#1e40af" stroke-width="2" stroke-linejoin="round" />
+    
+    <!-- Inner shape -->
+    <path d="M42,75 L50,42 L58,75 Z" fill="#1e40af" />
+    
+    <!-- Technical vertical marking - horizontal line removed -->
+    <path d="M50,25 L50,75" stroke="#1e40af" stroke-width="0.5" stroke-dasharray="2,2" />
+  </g>
+  
+  <!-- Tolerance dimension indicators (removed numbers) -->
+  <g>
+    <!-- Horizontal dimension line -->
+    <path d="M32,82 L68,82" stroke="#1e40af" stroke-width="0.8" />
+    
+    <!-- Vertical indicators -->
+    <path d="M32,80 L32,84 M68,80 L68,84" stroke="#1e40af" stroke-width="0.8" />
+    
+    <!-- Tolerance symbol notation (without numbers) -->
+    <path d="M46,82 L46,80 M54,82 L54,80" stroke="#1e40af" stroke-width="0.6" />
+    <path d="M48,81 L52,81" stroke="#1e40af" stroke-width="0.8" />
+  </g>
+  
+  <!-- Micrometer tick marks across the top -->
+  <g stroke="#1e40af" stroke-width="0.8">
+    <path d="M38,15 L38,17 M42,15 L42,18 M46,15 L46,17 M50,15 L50,19 M54,15 L54,17 M58,15 L58,18 M62,15 L62,17" />
+  </g>
+  
+  <!-- Gear teeth elements (subtle, integrated with the circle) -->
+  <g fill="none" stroke="#1e40af" stroke-width="0.7" opacity="0.6">
+    <path d="M26,50 L23,50 M27,40 L24,38 M32,31 L30,28 M40,25 L39,22 M50,23 L50,20
+             M60,25 L61,22 M68,31 L70,28 M73,40 L76,38 M74,50 L77,50
+             M73,60 L76,62 M68,69 L70,72 M60,75 L61,78 M50,77 L50,80
+             M40,75 L39,78 M32,69 L30,72 M27,60 L24,62" />
+  </g>
+  
+  <!-- Thin border -->
+  <circle cx="50" cy="50" r="45" fill="none" stroke="#1e40af" stroke-width="0.8" />
+</svg>

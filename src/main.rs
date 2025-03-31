@@ -16,7 +16,8 @@ fn main() -> Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1024.0, 768.0])
-            .with_title("Atlas"),
+            .with_title("Atlas")
+            .with_icon(utils::load_app_icon()), // Use our icon loader directly from utils
         ..Default::default()
     };
     
