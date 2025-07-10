@@ -48,6 +48,12 @@ pub enum Commands {
     Visualize(VisualizeCommands),
     /// Start interactive mode
     Interactive,
+    
+    /// Undo last action
+    Undo,
+    
+    /// Redo last undone action
+    Redo,
 }
 
 #[derive(Subcommand)]

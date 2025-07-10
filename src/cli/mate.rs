@@ -37,8 +37,16 @@ fn add_mate(state: &mut AppState) -> Result<()> {
         return Err(anyhow::anyhow!("Mate relationship already exists between these features"));
     }
 
+    // Save state for undo
+    state.save_to_undo_stack(format!("Add mate {} {} <-> {} {}", mate.component_a, mate.feature_a, mate.component_b, mate.feature_b));
+
     state.mates.push(mate.clone());
     state.update_dependencies();
+
+    // Autosave project
+    if let Err(e) = state.save_project() {
+        eprintln!("⚠️  Warning: Failed to save project: {}", e);
+    }
 
     println!("✅ Added mate relationship:");
     println!("   {} {} <-> {} {}", 
@@ -125,8 +133,16 @@ fn edit_mate(state: &mut AppState) -> Result<()> {
         return Err(anyhow::anyhow!("Mate relationship already exists between these features"));
     }
 
+    // Save state for undo
+    state.save_to_undo_stack(format!("Edit mate {} {} <-> {} {}", current_mate.component_a, current_mate.feature_a, current_mate.component_b, current_mate.feature_b));
+
     state.mates[mate_index] = edited_mate.clone();
     state.update_dependencies();
+
+    // Autosave project
+    if let Err(e) = state.save_project() {
+        eprintln!("⚠️  Warning: Failed to save project: {}", e);
+    }
 
     println!("✅ Updated mate relationship:");
     println!("   {} {} <-> {} {}", 
@@ -177,8 +193,16 @@ fn remove_mate(state: &mut AppState) -> Result<()> {
         return Ok(());
     }
 
+    // Save state for undo
+    state.save_to_undo_stack(format!("Remove mate {} {} <-> {} {}", mate.component_a, mate.feature_a, mate.component_b, mate.feature_b));
+
     let removed_mate = state.mates.remove(mate_index);
     state.update_dependencies();
+
+    // Autosave project
+    if let Err(e) = state.save_project() {
+        eprintln!("⚠️  Warning: Failed to save project: {}", e);
+    }
 
     println!("✅ Removed mate relationship: {} {} <-> {} {}", 
              style(&removed_mate.component_a).red(),

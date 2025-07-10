@@ -3,6 +3,10 @@
     description: Some("This is a test project"),
     version: "1.0.0",
     units: Metric,
-    component_references: [],
+    component_references: [
+        (
+            path: "components/plate_rev_a.ron",
+        ),
+    ],
     analyses: [],
 )

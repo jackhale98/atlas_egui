@@ -40,8 +40,16 @@ fn add_feature(state: &mut AppState) -> Result<()> {
         return Err(anyhow::anyhow!("Feature '{}' already exists in component '{}'", feature.name, component.name));
     }
 
+    // Save state for undo
+    state.save_to_undo_stack(format!("Add feature '{}' to component '{}'", feature.name, component.name));
+
     state.components[component_index].features.push(feature.clone());
     state.update_dependencies();
+
+    // Autosave project
+    if let Err(e) = state.save_project() {
+        eprintln!("⚠️  Warning: Failed to save project: {}", e);
+    }
 
     println!("✅ Added feature '{}' to component '{}'", 
              style(&feature.name).green().bold(), 
@@ -138,6 +146,9 @@ fn edit_feature(state: &mut AppState) -> Result<()> {
         return Err(anyhow::anyhow!("Feature '{}' already exists in component '{}'", edited_feature.name, component.name));
     }
 
+    // Save state for undo
+    state.save_to_undo_stack(format!("Edit feature '{}' in component '{}'", feature.name, component.name));
+
     // Update mate relationships if feature name changed
     if edited_feature.name != feature.name {
         for mate in &mut state.mates {
@@ -152,6 +163,11 @@ fn edit_feature(state: &mut AppState) -> Result<()> {
 
     state.components[component_index].features[feature_index] = edited_feature.clone();
     state.update_dependencies();
+
+    // Autosave project
+    if let Err(e) = state.save_project() {
+        eprintln!("⚠️  Warning: Failed to save project: {}", e);
+    }
 
     println!("✅ Updated feature: {}", style(&edited_feature.name).green().bold());
 
@@ -202,9 +218,15 @@ fn remove_feature(state: &mut AppState) -> Result<()> {
             return Ok(());
         }
 
+        // Save state for undo
+        state.save_to_undo_stack(format!("Remove feature '{}' from component '{}' with {} mates", feature.name, component.name, dependent_count));
+
         // Remove dependent mates
         state.mates.retain(|m| !((m.component_a == component.name && m.feature_a == feature.name) ||
                                  (m.component_b == component.name && m.feature_b == feature.name)));
+    } else {
+        // Save state for undo
+        state.save_to_undo_stack(format!("Remove feature '{}' from component '{}'", feature.name, component.name));
     }
 
     // Find and remove the feature
@@ -218,6 +240,11 @@ fn remove_feature(state: &mut AppState) -> Result<()> {
 
     state.components[component_index].features.remove(feature_index);
     state.update_dependencies();
+
+    // Autosave project
+    if let Err(e) = state.save_project() {
+        eprintln!("⚠️  Warning: Failed to save project: {}", e);
+    }
 
     println!("✅ Removed feature: {}", style(&feature.name).red().bold());
     

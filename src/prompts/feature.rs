@@ -29,8 +29,13 @@ pub fn prompt_new_feature() -> Result<Feature> {
 
     let distribution = select_distribution_type()?;
 
+    let drawing_location = Text::new("Drawing location (optional):")
+        .with_help_message("Enter drawing location/reference (e.g., 'View A-A', 'Sheet 2, Detail B', etc.)")
+        .prompt_skippable()?;
+
     let mut feature = Feature::new(name, feature_type, value, plus_tolerance, minus_tolerance);
     feature.update_distribution(distribution);
+    feature.drawing_location = drawing_location;
 
     Ok(feature)
 }
@@ -60,8 +65,14 @@ pub fn prompt_edit_feature(feature: &Feature) -> Result<Feature> {
     let current_dist = feature.distribution.unwrap_or(DistributionType::Normal);
     let distribution = select_distribution_type_with_default(current_dist)?;
 
+    let drawing_location = Text::new("Drawing location (optional):")
+        .with_default(&feature.drawing_location.as_deref().unwrap_or(""))
+        .with_help_message("Enter drawing location/reference (e.g., 'View A-A', 'Sheet 2, Detail B', etc.)")
+        .prompt_skippable()?;
+
     let mut new_feature = Feature::new(name, feature_type, value, plus_tolerance, minus_tolerance);
     new_feature.update_distribution(distribution);
+    new_feature.drawing_location = drawing_location;
 
     Ok(new_feature)
 }

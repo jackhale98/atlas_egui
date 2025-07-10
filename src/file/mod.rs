@@ -111,20 +111,40 @@ impl FileManager {
         Ok((project_file, components, mates_file))
     }
 
-    pub fn save_project(&mut self, project_file: &ProjectFile, components: &[Component]) -> Result<()> {
+    pub fn save_project(&mut self, project_file: &ProjectFile, components: &[Component], mates: &[crate::config::mate::Mate]) -> Result<()> {
         if let Some(project_dir) = &self.project_dir {
-            let project_path = project_dir.join("project.ron");
-            self.project_handler.save(project_file, &project_path)?;
-
-            // Save components
+            // Save components first and build references
             let components_dir = project_dir.join("components");
             fs::create_dir_all(&components_dir)?;
 
+            let mut component_references = Vec::new();
             for component in components {
                 let filename = format!("{}.ron", component.name.to_lowercase().replace(" ", "_"));
                 let comp_path = components_dir.join(&filename);
                 self.component_handler.save(component, &comp_path)?;
+                
+                // Create relative path for project file
+                let relative_path = format!("components/{}", filename);
+                component_references.push(crate::config::ComponentReference {
+                    path: relative_path,
+                });
             }
+
+            // Update project file with current component references
+            let mut updated_project = project_file.clone();
+            updated_project.component_references = component_references;
+
+            // Save mates file
+            let mates_file = mates::MatesFile {
+                version: "1.0.0".to_string(),
+                mates: mates.to_vec(),
+            };
+            let mates_path = project_dir.join("mates.ron");
+            self.mates_handler.save(&mates_file, &mates_path)?;
+
+            // Save updated project file
+            let project_path = project_dir.join("project.ron");
+            self.project_handler.save(&updated_project, &project_path)?;
 
             Ok(())
         } else {

@@ -21,6 +21,7 @@ pub struct Feature {
     pub dimension: Dimension,
     pub distribution: Option<DistributionType>,
     pub distribution_params: Option<DistributionParams>,
+    pub drawing_location: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +43,7 @@ impl Feature {
             },
             distribution: Some(DistributionType::Normal),
             distribution_params: None,
+            drawing_location: None,
         };
 
         // Calculate initial distribution parameters

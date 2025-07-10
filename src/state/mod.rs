@@ -11,6 +11,14 @@ use crate::file::FileManager;
 
 // CLI doesn't need dialog state or screen tracking - removed for simplicity
 
+#[derive(Debug, Clone)]
+pub struct ProjectSnapshot {
+    pub components: Vec<Component>,
+    pub mates: Vec<Mate>,
+    pub analyses: Vec<StackupAnalysis>,
+    pub description: String,
+}
+
 // Core application state
 #[derive(Debug)]
 pub struct AppState {
@@ -42,6 +50,11 @@ pub struct AppState {
     pub dependency_map_cache: Option<HashMap<((String, String), (String, String)), usize>>,
     pub dependency_map_cache_dirty: bool,
 
+    // Undo/Redo system
+    pub undo_stack: Vec<ProjectSnapshot>,
+    pub redo_stack: Vec<ProjectSnapshot>,
+    pub max_undo_history: usize,
+
     // Git control state removed for CLI
 }
 
@@ -66,6 +79,11 @@ impl AppState {
             dependency_map_cache: None,
             dependency_map_cache_dirty: true,
 
+            // Undo/Redo system
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            max_undo_history: 50,
+
             // Git control state removed for CLI
         }
     }
@@ -77,7 +95,8 @@ impl AppState {
 
         self.file_manager.save_project(
             &self.project_file,
-            &self.components
+            &self.components,
+            &self.mates
         )?;
         
         // Mark the dependency cache as dirty after saving
@@ -122,6 +141,100 @@ impl AppState {
     pub fn update_dependencies(&mut self) {
         self.update_mate_graph();
         self.mark_dependency_cache_dirty();
+    }
+
+    /// Create a snapshot of the current project state
+    pub fn create_snapshot(&self, description: String) -> ProjectSnapshot {
+        ProjectSnapshot {
+            components: self.components.clone(),
+            mates: self.mates.clone(),
+            analyses: self.analyses.clone(),
+            description,
+        }
+    }
+
+    /// Save current state to undo stack before making changes
+    pub fn save_to_undo_stack(&mut self, description: String) {
+        let snapshot = self.create_snapshot(description);
+        self.undo_stack.push(snapshot);
+
+        // Limit undo history size
+        if self.undo_stack.len() > self.max_undo_history {
+            self.undo_stack.remove(0);
+        }
+
+        // Clear redo stack when new action is performed
+        self.redo_stack.clear();
+    }
+
+    /// Undo the last action
+    pub fn undo(&mut self) -> Result<Option<String>> {
+        if let Some(snapshot) = self.undo_stack.pop() {
+            // Save current state to redo stack
+            let current_snapshot = self.create_snapshot("Redo point".to_string());
+            self.redo_stack.push(current_snapshot);
+
+            // Restore from snapshot
+            self.components = snapshot.components;
+            self.mates = snapshot.mates;
+            self.analyses = snapshot.analyses;
+            
+            self.update_dependencies();
+            
+            // Auto-save after undo
+            if let Err(e) = self.save_project() {
+                eprintln!("⚠️  Warning: Failed to save project after undo: {}", e);
+            }
+
+            Ok(Some(snapshot.description))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Redo the last undone action
+    pub fn redo(&mut self) -> Result<Option<String>> {
+        if let Some(snapshot) = self.redo_stack.pop() {
+            // Save current state to undo stack
+            let current_snapshot = self.create_snapshot("Undo point".to_string());
+            self.undo_stack.push(current_snapshot);
+
+            // Restore from snapshot
+            self.components = snapshot.components;
+            self.mates = snapshot.mates;
+            self.analyses = snapshot.analyses;
+            
+            self.update_dependencies();
+            
+            // Auto-save after redo
+            if let Err(e) = self.save_project() {
+                eprintln!("⚠️  Warning: Failed to save project after redo: {}", e);
+            }
+
+            Ok(Some(snapshot.description))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Check if undo is available
+    pub fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
+    }
+
+    /// Check if redo is available
+    pub fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
+
+    /// Get description of the last action that can be undone
+    pub fn undo_description(&self) -> Option<&str> {
+        self.undo_stack.last().map(|s| s.description.as_str())
+    }
+
+    /// Get description of the last action that can be redone
+    pub fn redo_description(&self) -> Option<&str> {
+        self.redo_stack.last().map(|s| s.description.as_str())
     }
 }
 

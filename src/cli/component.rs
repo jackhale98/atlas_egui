@@ -30,8 +30,16 @@ fn add_component(state: &mut AppState) -> Result<()> {
         return Err(anyhow::anyhow!("Component with name '{}' already exists", component.name));
     }
 
+    // Save state for undo
+    state.save_to_undo_stack(format!("Add component '{}'", component.name));
+
     state.components.push(component.clone());
     state.update_dependencies();
+
+    // Autosave project
+    if let Err(e) = state.save_project() {
+        eprintln!("⚠️  Warning: Failed to save project: {}", e);
+    }
 
     println!("✅ Added component: {}", style(&component.name).cyan().bold());
     
@@ -97,6 +105,9 @@ fn edit_component(state: &mut AppState) -> Result<()> {
         return Err(anyhow::anyhow!("Component with name '{}' already exists", edited_component.name));
     }
 
+    // Save state for undo
+    state.save_to_undo_stack(format!("Edit component '{}'", component.name));
+
     // Update mate relationships if component name changed
     if edited_component.name != component.name {
         for mate in &mut state.mates {
@@ -111,6 +122,11 @@ fn edit_component(state: &mut AppState) -> Result<()> {
 
     state.components[index] = edited_component.clone();
     state.update_dependencies();
+
+    // Autosave project
+    if let Err(e) = state.save_project() {
+        eprintln!("⚠️  Warning: Failed to save project: {}", e);
+    }
 
     println!("✅ Updated component: {}", style(&edited_component.name).cyan().bold());
 
@@ -148,8 +164,14 @@ fn remove_component(state: &mut AppState) -> Result<()> {
             return Ok(());
         }
 
+        // Save state for undo
+        state.save_to_undo_stack(format!("Remove component '{}' with {} mates", component.name, dependent_count));
+
         // Remove dependent mates
         state.mates.retain(|m| m.component_a != component.name && m.component_b != component.name);
+    } else {
+        // Save state for undo
+        state.save_to_undo_stack(format!("Remove component '{}'", component.name));
     }
 
     // Find and remove the component
@@ -159,6 +181,11 @@ fn remove_component(state: &mut AppState) -> Result<()> {
 
     state.components.remove(index);
     state.update_dependencies();
+
+    // Autosave project
+    if let Err(e) = state.save_project() {
+        eprintln!("⚠️  Warning: Failed to save project: {}", e);
+    }
 
     println!("✅ Removed component: {}", style(&component.name).red().bold());
     

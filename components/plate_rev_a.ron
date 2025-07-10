@@ -1,27 +1,28 @@
 (
     name: "plate Rev A",
-    description: Some("this is a plate"),
+    description: None,
     features: [
         (
             name: "length",
             feature_type: External,
             dimension: (
                 value: 50.0,
-                plus_tolerance: 0.05,
-                minus_tolerance: 0.05,
+                plus_tolerance: 0.1,
+                minus_tolerance: 0.1,
             ),
             distribution: Some(Normal),
             distribution_params: Some((
                 dist_type: Normal,
                 calculated: true,
                 mean: Some(50.0),
-                std_dev: Some(0.016666666666666666),
-                min: Some(49.95),
-                max: Some(50.05),
+                std_dev: Some(0.03333333333333333),
+                min: Some(49.9),
+                max: Some(50.1),
                 mode: Some(50.0),
                 shape: Some(2.0),
-                scale: Some(0.016666666666666666),
+                scale: Some(0.03333333333333333),
             )),
+            drawing_location: Some(""),
         ),
     ],
 )

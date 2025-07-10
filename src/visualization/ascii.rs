@@ -5,7 +5,7 @@ use console::style;
 use std::collections::HashMap;
 
 use crate::state::AppState;
-use crate::analysis::AnalysisResults;
+use crate::analysis::{AnalysisResults, SensitivityAnalysis};
 
 /// Render dependency matrix as ASCII table
 pub fn render_dependency_matrix(state: &AppState) -> Result<String> {
@@ -59,12 +59,16 @@ pub fn render_dependency_matrix(state: &AppState) -> Result<String> {
     output.push('\n');
     
     // Matrix rows
-    for (i, (comp, feat)) in features.iter().enumerate() {
-        output.push_str(&format!("{:>3}. {:>3} ", i + 1, 
-            features.iter().take(i + 1).map(|(c, f)| if c == comp && f == feat { "●" } else { " " }).collect::<String>()));
+    for (i, (_comp, _feat)) in features.iter().enumerate() {
+        output.push_str(&format!("{:>3}. ", i + 1));
         
         for j in 0..features.len() {
-            output.push_str(&format!("{:>3}", if matrix[i][j] != ' ' { matrix[i][j].to_string() } else { "·".to_string() }));
+            let symbol = if matrix[i][j] != ' ' { 
+                matrix[i][j].to_string() 
+            } else { 
+                "·".to_string() 
+            };
+            output.push_str(&format!("{:>3}", symbol));
         }
         output.push('\n');
     }
@@ -98,11 +102,32 @@ pub fn render_analysis_results(results: &AnalysisResults, analysis_name: &str) -
     output.push_str(&format!("Max: {:.6}\n", results.max));
     output.push_str(&format!("Range: {:.6}\n", results.max - results.min));
     
+    // Process capability indices
     if let Some(cp) = results.cp {
         output.push_str(&format!("Cp: {:.3}\n", cp));
     }
     if let Some(cpk) = results.cpk {
         output.push_str(&format!("Cpk: {:.3}\n", cpk));
+    }
+    if let Some(pp) = results.pp {
+        output.push_str(&format!("Pp: {:.3}\n", pp));
+    }
+    if let Some(ppk) = results.ppk {
+        output.push_str(&format!("Ppk: {:.3}\n", ppk));
+    }
+    
+    // Specification limits
+    if let Some(spec) = &results.specification_limits {
+        output.push_str("\nSpecification Limits:\n");
+        if let Some(lsl) = spec.lower_spec_limit {
+            output.push_str(&format!("  LSL: {:.6}\n", lsl));
+        }
+        if let Some(usl) = spec.upper_spec_limit {
+            output.push_str(&format!("  USL: {:.6}\n", usl));
+        }
+        if let Some(target) = spec.target {
+            output.push_str(&format!("  Target: {:.6}\n", target));
+        }
     }
     
     // Percentiles
@@ -111,6 +136,11 @@ pub fn render_analysis_results(results: &AnalysisResults, analysis_name: &str) -
         for (p, value) in &results.percentiles {
             output.push_str(&format!("  {:.1}%: {:.6}\n", p, value));
         }
+    }
+    
+    // Sensitivity analysis
+    if let Some(sensitivity) = &results.sensitivity_analysis {
+        output.push_str(&render_sensitivity_analysis(sensitivity)?);
     }
     
     // Histogram
@@ -203,6 +233,70 @@ pub fn render_contribution_chart(contributions: &[(String, f64)], title: &str) -
         output.push_str(&format!("{:>20}: {:>8.3} {} {}\n", 
                                 name, value, sign, bar));
     }
+    
+    Ok(output)
+}
+
+/// Render sensitivity analysis as ASCII chart
+pub fn render_sensitivity_analysis(sensitivity: &SensitivityAnalysis) -> Result<String> {
+    let mut output = String::new();
+    
+    output.push_str(&format!("\n🎯 Sensitivity Analysis\n"));
+    output.push_str("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    
+    if sensitivity.contributions.is_empty() {
+        output.push_str("No sensitivity data available\n");
+        return Ok(output);
+    }
+    
+    output.push_str(&format!("Total Variance: {:.6}\n", sensitivity.total_variance));
+    output.push_str(&format!("Total Std Dev: {:.6}\n\n", sensitivity.total_variance.sqrt()));
+    
+    output.push_str("Variance Contributions (sorted by impact):\n");
+    output.push_str("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    
+    let max_name_length = sensitivity.contributions.iter()
+        .map(|c| format!("{}.{}", c.component_name, c.feature_name).len())
+        .max()
+        .unwrap_or(20);
+    
+    let max_percentage = sensitivity.contributions.iter()
+        .map(|c| c.percentage)
+        .fold(0.0f64, f64::max);
+    
+    for (i, contrib) in sensitivity.contributions.iter().enumerate() {
+        let feature_name = format!("{}.{}", contrib.component_name, contrib.feature_name);
+        let bar_width = if max_percentage > 0.0 {
+            ((contrib.percentage / max_percentage) * 30.0) as usize
+        } else {
+            0
+        };
+        
+        let bar = "█".repeat(bar_width);
+        let percentage_color = if contrib.percentage > 50.0 {
+            style(format!("{:>6.1}%", contrib.percentage)).red().bold()
+        } else if contrib.percentage > 25.0 {
+            style(format!("{:>6.1}%", contrib.percentage)).yellow().bold()
+        } else {
+            style(format!("{:>6.1}%", contrib.percentage)).green()
+        };
+        
+        output.push_str(&format!(
+            "{:>2}. {:width$} {:>10.6} {} {}\n",
+            i + 1,
+            feature_name,
+            contrib.std_dev_contribution,
+            percentage_color,
+            bar,
+            width = max_name_length
+        ));
+    }
+    
+    // Add interpretation guide
+    output.push_str("\nInterpretation:\n");
+    output.push_str("  High contributors (>50%): Focus areas for tolerance tightening\n");
+    output.push_str("  Medium contributors (25-50%): Secondary optimization targets\n");
+    output.push_str("  Low contributors (<25%): Minimal impact on variation\n");
     
     Ok(output)
 }

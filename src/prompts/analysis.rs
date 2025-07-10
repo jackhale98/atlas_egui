@@ -2,7 +2,7 @@
 use anyhow::Result;
 use inquire::{Text, Select, MultiSelect, CustomType};
 
-use crate::analysis::{StackupAnalysis, AnalysisMethod, MonteCarloSettings, Contribution};
+use crate::analysis::{StackupAnalysis, AnalysisMethod, MonteCarloSettings, Contribution, SpecificationLimits};
 use crate::state::AppState;
 use crate::prompts::{fuzzy_select, fuzzy_multiselect};
 
@@ -15,6 +15,7 @@ pub fn prompt_new_analysis(state: &AppState) -> Result<StackupAnalysis> {
     let methods = select_analysis_methods()?;
     let monte_carlo_settings = prompt_monte_carlo_settings()?;
     let contributions = prompt_contributions(state)?;
+    let specification_limits = prompt_specification_limits()?;
 
     Ok(StackupAnalysis {
         id: uuid::Uuid::new_v4().to_string(),
@@ -22,6 +23,7 @@ pub fn prompt_new_analysis(state: &AppState) -> Result<StackupAnalysis> {
         methods,
         monte_carlo_settings,
         contributions,
+        specification_limits,
     })
 }
 
@@ -184,6 +186,44 @@ fn prompt_single_contribution(state: &AppState) -> Result<Contribution> {
         direction,
         half_count,
     })
+}
+
+/// Prompt for specification limits
+fn prompt_specification_limits() -> Result<Option<SpecificationLimits>> {
+    let has_spec_limits = inquire::Confirm::new("Define specification limits for process capability analysis?")
+        .with_default(false)
+        .with_help_message("Specification limits are required to calculate Cp, Cpk, Pp, and Ppk")
+        .prompt()?;
+
+    if !has_spec_limits {
+        return Ok(None);
+    }
+
+    let lower_spec_limit: Option<f64> = CustomType::new("Lower specification limit (optional):")
+        .with_help_message("Leave empty if no lower limit")
+        .prompt()
+        .ok();
+
+    let upper_spec_limit: Option<f64> = CustomType::new("Upper specification limit (optional):")
+        .with_help_message("Leave empty if no upper limit")
+        .prompt()
+        .ok();
+
+    let target: Option<f64> = CustomType::new("Target value (optional):")
+        .with_help_message("Leave empty if no target value")
+        .prompt()
+        .ok();
+
+    if lower_spec_limit.is_none() && upper_spec_limit.is_none() {
+        println!("⚠️  Warning: No specification limits defined. Process capability indices will not be calculated.");
+        return Ok(None);
+    }
+
+    Ok(Some(SpecificationLimits {
+        lower_spec_limit,
+        upper_spec_limit,
+        target,
+    }))
 }
 
 /// Select action for analysis management
