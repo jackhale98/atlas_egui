@@ -23,7 +23,10 @@ fn add_component(state: &mut AppState) -> Result<()> {
         return Err(anyhow::anyhow!("No project loaded. Use 'atlas new' or 'atlas open' first."));
     }
 
-    let component = prompt_new_component()?;
+    let component = match prompt_new_component()? {
+        Some(component) => component,
+        None => return Ok(()), // User cancelled
+    };
     
     // Check for duplicate names
     if state.components.iter().any(|c| c.name == component.name) {
@@ -97,7 +100,10 @@ fn edit_component(state: &mut AppState) -> Result<()> {
         .position(|c| c.name == component.name)
         .ok_or_else(|| anyhow::anyhow!("Component not found"))?;
 
-    let edited_component = prompt_edit_component(&component)?;
+    let edited_component = match prompt_edit_component(&component)? {
+        Some(component) => component,
+        None => return Ok(()), // User cancelled
+    };
 
     // Check for name conflicts (excluding the current component)
     if edited_component.name != component.name && 

@@ -5,6 +5,7 @@ use console::{style, Term};
 
 use crate::state::AppState;
 use crate::cli::{project, component, feature, mate, analysis, visualize};
+use crate::prompts::navigation::{MenuResult, show_main_menu, show_submenu, confirm_save_before_exit, prompt_text};
 
 /// Run interactive mode with a menu-driven interface
 pub fn run_interactive_mode(state: &mut AppState) -> Result<()> {
@@ -15,28 +16,84 @@ pub fn run_interactive_mode(state: &mut AppState) -> Result<()> {
         term.clear_screen()?;
         show_header(state)?;
         
-        let action = select_main_action()?;
+        let action_result = select_main_action()?;
         
-        match action.as_str() {
-            "Project Management" => handle_project_menu(state)?,
-            "Component Management" => handle_component_menu(state)?,
-            "Feature Management" => handle_feature_menu(state)?,
-            "Mate Relationships" => handle_mate_menu(state)?,
-            "Analysis" => handle_analysis_menu(state)?,
-            "Visualization" => handle_visualization_menu(state)?,
-            "Save Project" => {
-                if let Err(e) = project::save_project(state) {
-                    println!("❌ Error saving project: {}", e);
-                    pause_for_input()?;
+        match action_result {
+            MenuResult::Selection(action) => {
+                match action.as_str() {
+                    "Project Management" => handle_project_menu(state)?,
+                    "Component Management" => handle_component_menu(state)?,
+                    "Feature Management" => handle_feature_menu(state)?,
+                    "Mate Relationships" => handle_mate_menu(state)?,
+                    "Analysis" => handle_analysis_menu(state)?,
+                    "Visualization" => handle_visualization_menu(state)?,
+                    "Save Project" => {
+                        if let Err(e) = project::save_project(state) {
+                            println!("❌ Error saving project: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Exit" => {
+                        if state.project_dir.is_some() {
+                            // Ask if user wants to save before exiting
+                            match confirm_save_before_exit()? {
+                                Some(true) => {
+                                    if let Err(e) = project::save_project(state) {
+                                        println!("❌ Error saving project: {}", e);
+                                        pause_for_input()?;
+                                        continue; // Don't exit if save failed
+                                    }
+                                },
+                                Some(false) => {
+                                    // Don't save, just exit
+                                },
+                                None => {
+                                    // User cancelled exit
+                                    continue;
+                                }
+                            }
+                            project::close_project(state)?;
+                        }
+                        break;
+                    },
+                    _ => unreachable!(),
                 }
             },
-            "Exit" => {
+            MenuResult::GoBack => {
+                // This shouldn't happen in main menu, but if it does, treat as exit
                 if state.project_dir.is_some() {
+                    match confirm_save_before_exit()? {
+                        Some(true) => {
+                            if let Err(e) = project::save_project(state) {
+                                println!("❌ Error saving project: {}", e);
+                                pause_for_input()?;
+                                continue;
+                            }
+                        },
+                        Some(false) => {},
+                        None => continue,
+                    }
                     project::close_project(state)?;
                 }
                 break;
             },
-            _ => unreachable!(),
+            MenuResult::Exit => {
+                if state.project_dir.is_some() {
+                    match confirm_save_before_exit()? {
+                        Some(true) => {
+                            if let Err(e) = project::save_project(state) {
+                                println!("❌ Error saving project: {}", e);
+                                pause_for_input()?;
+                                continue;
+                            }
+                        },
+                        Some(false) => {},
+                        None => continue,
+                    }
+                    project::close_project(state)?;
+                }
+                break;
+            }
         }
     }
 
@@ -67,7 +124,7 @@ fn show_header(state: &AppState) -> Result<()> {
 }
 
 /// Select main menu action
-fn select_main_action() -> Result<String> {
+fn select_main_action() -> Result<MenuResult<String>> {
     let actions = vec![
         "Project Management".to_string(),
         "Component Management".to_string(),
@@ -79,9 +136,7 @@ fn select_main_action() -> Result<String> {
         "Exit".to_string(),
     ];
 
-    Select::new("What would you like to do?", actions)
-        .prompt()
-        .map_err(Into::into)
+    show_main_menu("What would you like to do?", actions)
 }
 
 /// Handle project management submenu
@@ -95,32 +150,44 @@ fn handle_project_menu(state: &mut AppState) -> Result<()> {
             "Back to Main Menu".to_string(),
         ];
 
-        let action = Select::new("Project Management:", actions).prompt()?;
+        let action_result = show_submenu("Project Management:", actions)?;
 
-        match action.as_str() {
-            "New Project" => {
-                if let Err(e) = project::new_project(state, None) {
-                    println!("❌ Error creating project: {}", e);
-                    pause_for_input()?;
+        match action_result {
+            MenuResult::Selection(action) => {
+                match action.as_str() {
+                    "New Project" => {
+                        if let Err(e) = project::new_project(state, None) {
+                            println!("❌ Error creating project: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Open Project" => {
+                        match prompt_text("Project file path:")? {
+                            Some(path) => {
+                                if let Err(e) = project::open_project(state, path.into()) {
+                                    println!("❌ Error opening project: {}", e);
+                                    pause_for_input()?;
+                                }
+                            },
+                            None => {
+                                println!("❌ Project opening cancelled");
+                            }
+                        }
+                    },
+                    "Project Info" => {
+                        project::show_project_info(state)?;
+                        pause_for_input()?;
+                    },
+                    "Close Project" => {
+                        project::close_project(state)?;
+                        pause_for_input()?;
+                    },
+                    "Back to Main Menu" => break,
+                    _ => unreachable!(),
                 }
             },
-            "Open Project" => {
-                let path = inquire::Text::new("Project file path:").prompt()?;
-                if let Err(e) = project::open_project(state, path.into()) {
-                    println!("❌ Error opening project: {}", e);
-                    pause_for_input()?;
-                }
-            },
-            "Project Info" => {
-                project::show_project_info(state)?;
-                pause_for_input()?;
-            },
-            "Close Project" => {
-                project::close_project(state)?;
-                pause_for_input()?;
-            },
-            "Back to Main Menu" => break,
-            _ => unreachable!(),
+            MenuResult::GoBack => break,
+            MenuResult::Exit => return Ok(()),
         }
     }
     
@@ -138,33 +205,39 @@ fn handle_component_menu(state: &mut AppState) -> Result<()> {
             "Back to Main Menu".to_string(),
         ];
 
-        let action = Select::new("Component Management:", actions).prompt()?;
+        let action_result = show_submenu("Component Management:", actions)?;
 
-        match action.as_str() {
-            "Add Component" => {
-                if let Err(e) = component::handle_component_command(state, crate::cli::ComponentCommands::Add) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
+        match action_result {
+            MenuResult::Selection(action) => {
+                match action.as_str() {
+                    "Add Component" => {
+                        if let Err(e) = component::handle_component_command(state, crate::cli::ComponentCommands::Add) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "List Components" => {
+                        component::handle_component_command(state, crate::cli::ComponentCommands::List)?;
+                        pause_for_input()?;
+                    },
+                    "Edit Component" => {
+                        if let Err(e) = component::handle_component_command(state, crate::cli::ComponentCommands::Edit) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Remove Component" => {
+                        if let Err(e) = component::handle_component_command(state, crate::cli::ComponentCommands::Remove) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Back to Main Menu" => break,
+                    _ => unreachable!(),
                 }
             },
-            "List Components" => {
-                component::handle_component_command(state, crate::cli::ComponentCommands::List)?;
-                pause_for_input()?;
-            },
-            "Edit Component" => {
-                if let Err(e) = component::handle_component_command(state, crate::cli::ComponentCommands::Edit) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
-                }
-            },
-            "Remove Component" => {
-                if let Err(e) = component::handle_component_command(state, crate::cli::ComponentCommands::Remove) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
-                }
-            },
-            "Back to Main Menu" => break,
-            _ => unreachable!(),
+            MenuResult::GoBack => break,
+            MenuResult::Exit => return Ok(()),
         }
     }
     
@@ -182,35 +255,41 @@ fn handle_feature_menu(state: &mut AppState) -> Result<()> {
             "Back to Main Menu".to_string(),
         ];
 
-        let action = Select::new("Feature Management:", actions).prompt()?;
+        let action_result = show_submenu("Feature Management:", actions)?;
 
-        match action.as_str() {
-            "Add Feature" => {
-                if let Err(e) = feature::handle_feature_command(state, crate::cli::FeatureCommands::Add) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
+        match action_result {
+            MenuResult::Selection(action) => {
+                match action.as_str() {
+                    "Add Feature" => {
+                        if let Err(e) = feature::handle_feature_command(state, crate::cli::FeatureCommands::Add) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "List Features" => {
+                        if let Err(e) = feature::handle_feature_command(state, crate::cli::FeatureCommands::List) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Edit Feature" => {
+                        if let Err(e) = feature::handle_feature_command(state, crate::cli::FeatureCommands::Edit) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Remove Feature" => {
+                        if let Err(e) = feature::handle_feature_command(state, crate::cli::FeatureCommands::Remove) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Back to Main Menu" => break,
+                    _ => unreachable!(),
                 }
             },
-            "List Features" => {
-                if let Err(e) = feature::handle_feature_command(state, crate::cli::FeatureCommands::List) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
-                }
-            },
-            "Edit Feature" => {
-                if let Err(e) = feature::handle_feature_command(state, crate::cli::FeatureCommands::Edit) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
-                }
-            },
-            "Remove Feature" => {
-                if let Err(e) = feature::handle_feature_command(state, crate::cli::FeatureCommands::Remove) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
-                }
-            },
-            "Back to Main Menu" => break,
-            _ => unreachable!(),
+            MenuResult::GoBack => break,
+            MenuResult::Exit => return Ok(()),
         }
     }
     
@@ -229,37 +308,43 @@ fn handle_mate_menu(state: &mut AppState) -> Result<()> {
             "Back to Main Menu".to_string(),
         ];
 
-        let action = Select::new("Mate Relationships:", actions).prompt()?;
+        let action_result = show_submenu("Mate Relationships:", actions)?;
 
-        match action.as_str() {
-            "Add Mate" => {
-                if let Err(e) = mate::handle_mate_command(state, crate::cli::MateCommands::Add) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
+        match action_result {
+            MenuResult::Selection(action) => {
+                match action.as_str() {
+                    "Add Mate" => {
+                        if let Err(e) = mate::handle_mate_command(state, crate::cli::MateCommands::Add) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "List Mates" => {
+                        mate::handle_mate_command(state, crate::cli::MateCommands::List)?;
+                        pause_for_input()?;
+                    },
+                    "Edit Mate" => {
+                        if let Err(e) = mate::handle_mate_command(state, crate::cli::MateCommands::Edit) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Remove Mate" => {
+                        if let Err(e) = mate::handle_mate_command(state, crate::cli::MateCommands::Remove) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Show Dependencies" => {
+                        visualize::handle_visualize_command(state, crate::cli::VisualizeCommands::Dependencies)?;
+                        pause_for_input()?;
+                    },
+                    "Back to Main Menu" => break,
+                    _ => unreachable!(),
                 }
             },
-            "List Mates" => {
-                mate::handle_mate_command(state, crate::cli::MateCommands::List)?;
-                pause_for_input()?;
-            },
-            "Edit Mate" => {
-                if let Err(e) = mate::handle_mate_command(state, crate::cli::MateCommands::Edit) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
-                }
-            },
-            "Remove Mate" => {
-                if let Err(e) = mate::handle_mate_command(state, crate::cli::MateCommands::Remove) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
-                }
-            },
-            "Show Dependencies" => {
-                visualize::handle_visualize_command(state, crate::cli::VisualizeCommands::Dependencies)?;
-                pause_for_input()?;
-            },
-            "Back to Main Menu" => break,
-            _ => unreachable!(),
+            MenuResult::GoBack => break,
+            MenuResult::Exit => return Ok(()),
         }
     }
     
@@ -278,39 +363,45 @@ fn handle_analysis_menu(state: &mut AppState) -> Result<()> {
             "Back to Main Menu".to_string(),
         ];
 
-        let action = Select::new("Analysis:", actions).prompt()?;
+        let action_result = show_submenu("Analysis:", actions)?;
 
-        match action.as_str() {
-            "New Analysis" => {
-                if let Err(e) = analysis::handle_analysis_command(state, crate::cli::AnalysisCommands::New) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
+        match action_result {
+            MenuResult::Selection(action) => {
+                match action.as_str() {
+                    "New Analysis" => {
+                        if let Err(e) = analysis::handle_analysis_command(state, crate::cli::AnalysisCommands::New) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Run Analysis" => {
+                        if let Err(e) = analysis::handle_analysis_command(state, crate::cli::AnalysisCommands::Run) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "List Analyses" => {
+                        analysis::handle_analysis_command(state, crate::cli::AnalysisCommands::List)?;
+                        pause_for_input()?;
+                    },
+                    "Show Results" => {
+                        if let Err(e) = analysis::handle_analysis_command(state, crate::cli::AnalysisCommands::Results) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Export Results" => {
+                        if let Err(e) = analysis::handle_analysis_command(state, crate::cli::AnalysisCommands::Export) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Back to Main Menu" => break,
+                    _ => unreachable!(),
                 }
             },
-            "Run Analysis" => {
-                if let Err(e) = analysis::handle_analysis_command(state, crate::cli::AnalysisCommands::Run) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
-                }
-            },
-            "List Analyses" => {
-                analysis::handle_analysis_command(state, crate::cli::AnalysisCommands::List)?;
-                pause_for_input()?;
-            },
-            "Show Results" => {
-                if let Err(e) = analysis::handle_analysis_command(state, crate::cli::AnalysisCommands::Results) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
-                }
-            },
-            "Export Results" => {
-                if let Err(e) = analysis::handle_analysis_command(state, crate::cli::AnalysisCommands::Export) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
-                }
-            },
-            "Back to Main Menu" => break,
-            _ => unreachable!(),
+            MenuResult::GoBack => break,
+            MenuResult::Exit => return Ok(()),
         }
     }
     
@@ -327,27 +418,33 @@ fn handle_visualization_menu(state: &mut AppState) -> Result<()> {
             "Back to Main Menu".to_string(),
         ];
 
-        let action = Select::new("Visualization:", actions).prompt()?;
+        let action_result = show_submenu("Visualization:", actions)?;
 
-        match action.as_str() {
-            "Show Dependencies" => {
-                visualize::handle_visualize_command(state, crate::cli::VisualizeCommands::Dependencies)?;
-                pause_for_input()?;
-            },
-            "Show Analysis Results" => {
-                if let Err(e) = visualize::handle_visualize_command(state, crate::cli::VisualizeCommands::Results) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
+        match action_result {
+            MenuResult::Selection(action) => {
+                match action.as_str() {
+                    "Show Dependencies" => {
+                        visualize::handle_visualize_command(state, crate::cli::VisualizeCommands::Dependencies)?;
+                        pause_for_input()?;
+                    },
+                    "Show Analysis Results" => {
+                        if let Err(e) = visualize::handle_visualize_command(state, crate::cli::VisualizeCommands::Results) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Export to SVG" => {
+                        if let Err(e) = visualize::handle_visualize_command(state, crate::cli::VisualizeCommands::Export) {
+                            println!("❌ Error: {}", e);
+                            pause_for_input()?;
+                        }
+                    },
+                    "Back to Main Menu" => break,
+                    _ => unreachable!(),
                 }
             },
-            "Export to SVG" => {
-                if let Err(e) = visualize::handle_visualize_command(state, crate::cli::VisualizeCommands::Export) {
-                    println!("❌ Error: {}", e);
-                    pause_for_input()?;
-                }
-            },
-            "Back to Main Menu" => break,
-            _ => unreachable!(),
+            MenuResult::GoBack => break,
+            MenuResult::Exit => return Ok(()),
         }
     }
     
@@ -357,6 +454,6 @@ fn handle_visualization_menu(state: &mut AppState) -> Result<()> {
 /// Pause and wait for user input
 fn pause_for_input() -> Result<()> {
     println!("\nPress Enter to continue...");
-    let _ = inquire::Text::new("").prompt();
+    let _ = prompt_text("");
     Ok(())
 }

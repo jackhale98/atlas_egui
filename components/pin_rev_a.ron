@@ -1,0 +1,28 @@
+(
+    name: "pin Rev a",
+    description: None,
+    features: [
+        (
+            name: "diameter",
+            feature_type: External,
+            dimension: (
+                value: 5.0,
+                plus_tolerance: 0.1,
+                minus_tolerance: 0.1,
+            ),
+            distribution: Some(Normal),
+            distribution_params: Some((
+                dist_type: Normal,
+                calculated: true,
+                mean: Some(5.0),
+                std_dev: Some(0.03333333333333333),
+                min: Some(4.9),
+                max: Some(5.1),
+                mode: Some(5.0),
+                shape: Some(2.0),
+                scale: Some(0.03333333333333333),
+            )),
+            drawing_location: Some(""),
+        ),
+    ],
+)

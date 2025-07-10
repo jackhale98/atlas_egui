@@ -1,11 +1,14 @@
 (
-    name: "test_project",
-    description: Some("This is a test project"),
+    name: "Test Project",
+    description: None,
     version: "1.0.0",
     units: Metric,
     component_references: [
         (
             path: "components/plate_rev_a.ron",
+        ),
+        (
+            path: "components/pin_rev_a.ron",
         ),
     ],
     analyses: [],

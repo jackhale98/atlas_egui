@@ -73,12 +73,36 @@ fn find_project_file() -> Result<Option<PathBuf>> {
     
     let current_dir = std::env::current_dir()?;
     
-    // Look for .ron files in current directory and one level down
+    // First, look for files explicitly named "project.ron"
+    for entry in WalkDir::new(&current_dir).max_depth(2).into_iter().filter_map(|e| e.ok()) {
+        if entry.file_type().is_file() {
+            if let Some(file_name) = entry.path().file_name() {
+                if file_name == "project.ron" {
+                    return Ok(Some(entry.path().to_path_buf()));
+                }
+            }
+        }
+    }
+    
+    // If no project.ron found, try to identify project files by parsing them
     for entry in WalkDir::new(&current_dir).max_depth(2).into_iter().filter_map(|e| e.ok()) {
         if entry.file_type().is_file() {
             if let Some(extension) = entry.path().extension() {
                 if extension == "ron" {
-                    return Ok(Some(entry.path().to_path_buf()));
+                    // Skip known non-project files
+                    if let Some(file_name) = entry.path().file_name() {
+                        let file_name_str = file_name.to_string_lossy();
+                        if file_name_str == "mates.ron" || file_name_str.starts_with("components/") {
+                            continue;
+                        }
+                    }
+                    
+                    // Try to parse as a project file to verify it's actually a project
+                    if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                        if content.contains("component_references") && content.contains("name") {
+                            return Ok(Some(entry.path().to_path_buf()));
+                        }
+                    }
                 }
             }
         }

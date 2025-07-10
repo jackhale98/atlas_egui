@@ -11,6 +11,7 @@ pub mod feature;
 pub mod mate;
 pub mod analysis;
 pub mod utils;
+pub mod navigation;
 
 // Re-export main functions
 pub use component::prompt_new_component;

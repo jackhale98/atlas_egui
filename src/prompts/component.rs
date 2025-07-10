@@ -3,21 +3,33 @@ use anyhow::Result;
 use inquire::{Text, Select};
 
 use crate::config::{Component, Feature};
+use crate::prompts::navigation::{prompt_text, prompt_text_with_default, show_cancellation_message};
 
 /// Prompt for new component creation
-pub fn prompt_new_component() -> Result<Component> {
-    let name = Text::new("Component name:")
-        .with_help_message("Enter a descriptive name for the component")
-        .prompt()?;
+pub fn prompt_new_component() -> Result<Option<Component>> {
+    let name = match prompt_text("Component name:")? {
+        Some(name) => name,
+        None => {
+            show_cancellation_message("Component creation");
+            return Ok(None);
+        }
+    };
     
-    let revision = Text::new("Revision:")
-        .with_default("A")
-        .with_help_message("Component revision (A, B, C, etc.)")
-        .prompt()?;
+    let revision = match prompt_text_with_default("Revision:", "A")? {
+        Some(revision) => revision,
+        None => {
+            show_cancellation_message("Component creation");
+            return Ok(None);
+        }
+    };
     
-    let description = Text::new("Description:")
-        .with_help_message("Brief description of the component (optional)")
-        .prompt()?;
+    let description = match prompt_text("Description (optional):")? {
+        Some(description) => description,
+        None => {
+            show_cancellation_message("Component creation");
+            return Ok(None);
+        }
+    };
 
     let full_name = if revision.trim().is_empty() {
         name
@@ -31,25 +43,33 @@ pub fn prompt_new_component() -> Result<Component> {
         Some(description)
     };
 
-    Ok(Component {
+    Ok(Some(Component {
         name: full_name,
         description,
         features: Vec::new(),
-    })
+    }))
 }
 
 /// Prompt for component editing
-pub fn prompt_edit_component(component: &Component) -> Result<Component> {
+pub fn prompt_edit_component(component: &Component) -> Result<Option<Component>> {
     println!("Editing component: {}", component.name);
     
-    let name = Text::new("Component name:")
-        .with_default(&component.name)
-        .prompt()?;
+    let name = match prompt_text_with_default("Component name:", &component.name)? {
+        Some(name) => name,
+        None => {
+            show_cancellation_message("Component editing");
+            return Ok(None);
+        }
+    };
     
     let current_desc = component.description.as_deref().unwrap_or("");
-    let description = Text::new("Description:")
-        .with_default(current_desc)
-        .prompt()?;
+    let description = match prompt_text_with_default("Description:", current_desc)? {
+        Some(description) => description,
+        None => {
+            show_cancellation_message("Component editing");
+            return Ok(None);
+        }
+    };
 
     let description = if description.trim().is_empty() {
         None
@@ -57,11 +77,11 @@ pub fn prompt_edit_component(component: &Component) -> Result<Component> {
         Some(description)
     };
 
-    Ok(Component {
+    Ok(Some(Component {
         name,
         description,
         features: component.features.clone(), // Keep existing features
-    })
+    }))
 }
 
 /// Select action for component management

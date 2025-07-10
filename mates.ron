@@ -1,4 +1,12 @@
 (
     version: "1.0.0",
-    mates: [],
+    mates: [
+        (
+            component_a: "plate Rev A",
+            feature_a: "hole",
+            component_b: "pin Rev a",
+            feature_b: "diameter",
+            fit_type: Clearance,
+        ),
+    ],
 )
