@@ -7,100 +7,9 @@ use crate::config::{ProjectFile, Component};
 use crate::config::mate::Mate;
 use crate::analysis::{StackupAnalysis, AnalysisResults};
 use crate::file::FileManager;
-use crate::analysis::stackup::{AnalysisMethod, MonteCarloSettings};
-use crate::state::mate_state::MateState;
+// CLI doesn't need complex state management
 
-pub mod mate_state;
-
-// Core dialog tracking
-#[derive(Debug, Clone)]
-pub enum DialogState {
-    None,
-    NewComponent {
-        name: String,
-        revision: String,
-        description: String,
-    },
-    EditComponent {
-        index: usize,
-        name: String,
-        revision: String,
-        description: String,
-    },
-    NewFeature {
-        component_index: usize,
-        name: String,
-        value: f64,
-        plus_tolerance: f64,
-        minus_tolerance: f64,
-    },
-    EditFeature {
-        component_index: usize,
-        feature_index: usize,
-        name: String,
-        value: f64,
-        plus_tolerance: f64,
-        minus_tolerance: f64,
-    },
-    NewMate {
-        component_a: String,
-        feature_a: String,
-        component_b: String,
-        feature_b: String,
-    },
-    EditMate {
-        index: usize,
-        component_a: String,
-        feature_a: String,
-        component_b: String,
-        feature_b: String,
-    },
-    NewAnalysis {
-        name: String,
-        methods: Vec<AnalysisMethod>,
-        monte_carlo_settings: MonteCarloSettings,
-    },
-    EditAnalysis {
-        index: usize,
-        name: String,
-        methods: Vec<AnalysisMethod>,
-        monte_carlo_settings: MonteCarloSettings,
-    },
-    NewContribution {
-        analysis_index: usize,
-        component_id: String,
-        feature_id: String,
-        direction: f64,
-        half_count: bool,
-    },
-    EditContribution {
-        analysis_index: usize,
-        contribution_index: Option<usize>,
-        component_id: String,
-        feature_id: String,
-        direction: f64,
-        half_count: bool,
-    },
-}
-
-// Screen/tab tracking
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Screen {
-    Project,
-    Components,
-    Mates,
-    DependencyMatrix,
-    Analysis,
-    GitControl,
-}
-
-// Analysis view tabs
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AnalysisTab {
-    Details,
-    Results,
-    Visualization,
-}
+// CLI doesn't need dialog state or screen tracking - removed for simplicity
 
 // Core application state
 #[derive(Debug)]
@@ -118,11 +27,7 @@ pub struct AppState {
     pub analyses: Vec<StackupAnalysis>,
     pub latest_results: HashMap<String, AnalysisResults>,
     
-    // Minimal UI state
-    pub current_screen: Screen,
-    pub current_dialog: DialogState,
-    pub analysis_tab: AnalysisTab,
-    pub error_message: Option<String>,
+    // CLI doesn't need UI state - removed
     
     // File management
     pub file_manager: FileManager,
@@ -132,12 +37,12 @@ pub struct AppState {
     pub selected_mate: Option<usize>,
     pub selected_analysis: Option<usize>,
 
-    pub mate_state: mate_state::MateState,
+    // Simplified state for CLI
 
     pub dependency_map_cache: Option<HashMap<((String, String), (String, String)), usize>>,
     pub dependency_map_cache_dirty: bool,
 
-    pub git_control_state: Option<crate::ui::git_control::GitControlState>,
+    // Git control state removed for CLI
 }
 
 impl AppState {
@@ -148,13 +53,10 @@ impl AppState {
             components: Vec::new(),
             mates: Vec::new(),
             mate_graph: petgraph::Graph::new(),
-            mate_state: mate_state::MateState::default(),
+            // Simplified state for CLI
             analyses: Vec::new(),
             latest_results: HashMap::new(),
-            current_screen: Screen::Project,
-            current_dialog: DialogState::None,
-            analysis_tab: AnalysisTab::Details,
-            error_message: None,
+            // CLI doesn't need UI state
             file_manager: FileManager::new(),
             selected_component: None,
             selected_feature: None,
@@ -164,7 +66,7 @@ impl AppState {
             dependency_map_cache: None,
             dependency_map_cache_dirty: true,
 
-            git_control_state: None,
+            // Git control state removed for CLI
         }
     }
 
@@ -175,8 +77,7 @@ impl AppState {
 
         self.file_manager.save_project(
             &self.project_file,
-            &self.components,
-            &self.analyses
+            &self.components
         )?;
         
         // Mark the dependency cache as dirty after saving
@@ -214,10 +115,7 @@ impl AppState {
             }
         }
     }
-    pub fn update_mate_state(&mut self) {
-        self.mate_state.mates = self.mates.clone();
-        self.mate_state.update_dependency_graph(&self.components);
-    }
+    // Simplified dependency management for CLI
     pub fn mark_dependency_cache_dirty(&mut self) {
         self.dependency_map_cache_dirty = true;
     }

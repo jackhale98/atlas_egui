@@ -1,21 +1,22 @@
 [package]
-name = "atlas-gui"
+name = "atlas-cli"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# GUI Framework
-eframe = { version = "0.24.0", features = ["persistence"] }  # Includes egui
-winapi = { version = "0.3", features = ["winuser"] }
-egui_plot = "0.24.0"  # For visualization support
+# CLI Framework
+clap = { version = "4.0", features = ["derive"] }
+inquire = "0.7"
+console = "0.15"
+indicatif = "0.17"
 
 # Core functionality
 ron = "0.8"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 uuid = { version = "1.7", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1.0"
-rfd = "0.15.2"  # File dialogs
 csv = "1.1"
 
 # Analysis functionality
@@ -23,6 +24,14 @@ petgraph = "0.6.5"  # For dependency graphs
 rand = "0.8.5"
 rand_distr = "0.4.3"
 statrs = "0.18.0"
-resvg = "0.45.0"
-usvg = "0.45.0"
-tiny-skia = "0.11.4"
+
+# Visualization
+textplots = "0.8"
+svg = "0.17"
+
+# File handling
+dirs = "5.0"
+walkdir = "2.4"
+
+# String processing for fuzzy search
+fuzzy-matcher = "0.3"

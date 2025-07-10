@@ -4,7 +4,7 @@ use std::fmt;
 use super::Feature;
 use super::feature::FeatureType;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum FitType {
     Clearance,
     Transition,
@@ -38,7 +38,6 @@ pub struct FitValidation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mate {
-    pub id: String,
     pub component_a: String,
     pub feature_a: String,
     pub component_b: String,
@@ -48,7 +47,6 @@ pub struct Mate {
 
 impl Mate {
     pub fn new(
-        id: String,
         component_a: String,
         feature_a: String,
         component_b: String,
@@ -56,7 +54,6 @@ impl Mate {
         fit_type: FitType,
     ) -> Self {
         Self {
-            id,
             component_a,
             feature_a,
             component_b,

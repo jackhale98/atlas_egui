@@ -1,0 +1,74 @@
+<svg height="600" viewBox="0 0 800 600" width="800" xmlns="http://www.w3.org/2000/svg">
+<rect fill="white" height="100%" width="100%"/>
+<text fill="black" font-size="18" font-weight="bold" text-anchor="middle" x="400" y="30">
+Analysis Results: test_ana
+</text>
+<text fill="black" font-size="12" x="20" y="50">
+Mean: 49.999907
+</text>
+<text fill="black" font-size="12" x="20" y="70">
+Std Dev: 0.016826
+</text>
+<text fill="black" font-size="12" x="20" y="90">
+Min: 49.936308
+</text>
+<text fill="black" font-size="12" x="20" y="110">
+Max: 50.062511
+</text>
+<line stroke="black" stroke-width="2" x1="60" x2="740" y1="530" y2="530"/>
+<line stroke="black" stroke-width="2" x1="60" x2="60" y1="150" y2="530"/>
+<rect fill="#4CAF50" height="1.1242603550295858" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="60" y="528.8757396449704"/>
+<rect fill="#4CAF50" height="1.4990138067061145" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="82.66666666666667" y="528.5009861932939"/>
+<rect fill="#4CAF50" height="2.6232741617357003" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="105.33333333333334" y="527.3767258382643"/>
+<rect fill="#4CAF50" height="5.2465483234714005" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="128" y="524.7534516765286"/>
+<rect fill="#4CAF50" height="10.493096646942801" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="150.66666666666669" y="519.5069033530572"/>
+<rect fill="#4CAF50" height="23.6094674556213" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="173.33333333333334" y="506.3905325443787"/>
+<rect fill="#4CAF50" height="37.47534516765286" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="196" y="492.52465483234715"/>
+<rect fill="#4CAF50" height="62.20907297830375" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="218.66666666666669" y="467.79092702169623"/>
+<rect fill="#4CAF50" height="98.93491124260355" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="241.33333333333334" y="431.06508875739644"/>
+<rect fill="#4CAF50" height="132.66272189349112" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="264" y="397.33727810650885"/>
+<rect fill="#4CAF50" height="186.25246548323472" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="286.6666666666667" y="343.7475345167653"/>
+<rect fill="#4CAF50" height="245.46351084812622" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="309.33333333333337" y="284.53648915187375"/>
+<rect fill="#4CAF50" height="308.42209072978306" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="332" y="221.57790927021694"/>
+<rect fill="#4CAF50" height="335.4043392504931" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="354.6666666666667" y="194.59566074950692"/>
+<rect fill="#4CAF50" height="373.2544378698225" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="377.33333333333337" y="156.74556213017752"/>
+<rect fill="#4CAF50" height="380" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="400" y="150"/>
+<rect fill="#4CAF50" height="350.0197238658777" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="422.6666666666667" y="179.98027613412228"/>
+<rect fill="#4CAF50" height="312.1696252465483" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="445.33333333333337" y="217.83037475345168"/>
+<rect fill="#4CAF50" height="258.57988165680473" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="468" y="271.42011834319527"/>
+<rect fill="#4CAF50" height="220.72978303747533" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="490.6666666666667" y="309.27021696252467"/>
+<rect fill="#4CAF50" height="136.4102564102564" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="513.3333333333334" y="393.5897435897436"/>
+<rect fill="#4CAF50" height="113.92504930966469" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="536" y="416.0749506903353"/>
+<rect fill="#4CAF50" height="60.710059171597635" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="558.6666666666667" y="469.28994082840234"/>
+<rect fill="#4CAF50" height="39.349112426035504" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="581.3333333333334" y="490.6508875739645"/>
+<rect fill="#4CAF50" height="23.234714003944774" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="604" y="506.76528599605524"/>
+<rect fill="#4CAF50" height="13.116370808678502" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="626.6666666666667" y="516.8836291913215"/>
+<rect fill="#4CAF50" height="7.495069033530572" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="649.3333333333334" y="522.5049309664694"/>
+<rect fill="#4CAF50" height="4.871794871794871" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="672" y="525.1282051282051"/>
+<rect fill="#4CAF50" height="1.4990138067061145" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="694.6666666666667" y="528.5009861932939"/>
+<rect fill="#4CAF50" height="0.7495069033530573" stroke="#2E7D32" stroke-width="1" width="21.666666666666668" x="717.3333333333334" y="529.2504930966469"/>
+<text fill="black" font-size="12" text-anchor="middle" x="400" y="570">
+Value
+</text>
+<text fill="black" font-size="12" text-anchor="middle" transform="rotate(-90, 20, 340)" x="20" y="340">
+Frequency
+</text>
+<text fill="black" font-size="10" text-anchor="middle" x="60" y="550">
+49.94
+</text>
+<text fill="black" font-size="10" text-anchor="middle" x="196" y="550">
+49.96
+</text>
+<text fill="black" font-size="10" text-anchor="middle" x="332" y="550">
+49.99
+</text>
+<text fill="black" font-size="10" text-anchor="middle" x="468" y="550">
+50.01
+</text>
+<text fill="black" font-size="10" text-anchor="middle" x="604" y="550">
+50.04
+</text>
+<text fill="black" font-size="10" text-anchor="middle" x="740" y="550">
+50.06
+</text>
+</svg>

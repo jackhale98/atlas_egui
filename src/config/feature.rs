@@ -1,6 +1,6 @@
 // src/config/feature.rs
 use serde::{Serialize, Deserialize};
-use crate::analysis::stackup::DistributionType;
+use crate::analysis::DistributionType;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Copy)]
 pub enum FeatureType {

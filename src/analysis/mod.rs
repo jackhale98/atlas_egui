@@ -1,11 +1,5 @@
 // src/analysis/mod.rs
-pub mod stackup;
+pub mod cli_support;
 
-// Re-export commonly used types
-pub use stackup::{
-    AnalysisMethod,
-    StackupAnalysis,
-    AnalysisResults,
-    MonteCarloResult,
-    StackupContribution,
-};
+// Re-export all types from cli_support
+pub use cli_support::*;
